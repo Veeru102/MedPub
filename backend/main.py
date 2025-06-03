@@ -10,8 +10,8 @@ from pydantic import BaseModel
 import logging
 import faiss
 
-from .document_processor import DocumentProcessor
-from .rag_engine import RAGEngine
+from document_processor import DocumentProcessor
+from rag_engine import RAGEngine
 from langchain_core.documents import Document # Import Document
 from langchain_community.document_loaders import PyMuPDFLoader # Updated import
 
