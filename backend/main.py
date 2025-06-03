@@ -41,8 +41,14 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 # Stores Langchain Document objects with chunks and metadata
 processed_documents: Dict[str, List[Document]] = {}
 doc_processor = DocumentProcessor()
-# Initialize RAGEngine - Note: For a real app, manage its state/vector store persistently
-# rage_engine = RAGEngine() # Initialize once if managing vector store persistently
+# Initialize RAGEngine globally to persist the vector store across requests
+rage_engine = RAGEngine()
+
+# Define startup event to load the FAISS index
+@app.on_event("startup")
+async def startup_event():
+    logger.info("Application startup: Loading FAISS index...")
+    rage_engine.load_vector_store()
 
 
 class SummarizeRequest(BaseModel):
@@ -87,15 +93,35 @@ async def upload_pdf(file: UploadFile = File(...)):
         # The process_pdf method in DocumentProcessor now returns a list of Documents
         lc_documents = doc_processor.process_pdf(file_path)
         
+        # Store processed documents and update the global RAGEngine's vector store
         processed_documents[filename] = lc_documents
-        logger.info(f"File processed successfully: {filename} with {len(lc_documents)} chunks")
+        
+        # Pass the new documents to the RAGEngine to update the vector store
+        # The RAGEngine should handle adding these to the existing index or creating a new one
+        # For simplicity now, we recreate the index with all current documents. 
+        # A more efficient approach would be incremental indexing.
+        all_processed_documents = []
+        for doc_list in processed_documents.values():
+             all_processed_documents.extend(doc_list)
+        
+        if all_processed_documents:
+             rage_engine.create_vector_store_from_documents(all_processed_documents)
+             # Ensure the QA chain is updated with the new vector store
+             rage_engine.setup_qa_chain()
+        
+        logger.info(f"File processed successfully: {filename} with {len(lc_documents)} chunks. Vector store updated.")
+        return {"filename": filename, "message": "File uploaded and processed successfully"}
+        
     except Exception as e:
-        logger.error(f"Error processing PDF: {e}")
+        logger.error(f"Error processing PDF or updating vector store: {e}")
         # Clean up the uploaded file if processing fails
-        os.remove(file_path)
-        raise HTTPException(status_code=500, detail=f"Error processing PDF: {e}")
-    
-    return {"filename": filename, "message": "File uploaded and processed successfully"}
+        try:
+            os.remove(file_path)
+            logger.info(f"Cleaned up {file_path} after processing error.")
+        except OSError as cleanup_error:
+            logger.error(f"Error cleaning up file {file_path}: {cleanup_error}")
+
+        raise HTTPException(status_code=500, detail=f"Error processing PDF or updating vector store: {e}")
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
@@ -136,8 +162,8 @@ async def summarize_paper(request: SummarizeRequest):
     summary_result = await rage_engine.summarize_paper(chunks_text)
     
     if summary_result.get("status") == "error":
-         logger.error(f"Summarization failed for {filename}: {summary_result.get("error")}")
-         raise HTTPException(status_code=500, detail=f"Summarization failed: {summary_result.get("error")}")
+        logger.error(f'Summarization failed for {filename}: {summary_result.get("error")}')
+        raise HTTPException(status_code=500, detail=f"Summarization failed: {summary_result.get("error")}")
 
     return {"message": summary_result.get("summary", "Summarization failed.")}
 
@@ -182,27 +208,39 @@ async def query_papers(request: QueryRequest):
     if not filenames:
         raise HTTPException(status_code=400, detail="No papers specified for query")
         
-    # Gather Langchain Document objects for the specified files
-    relevant_lc_documents = []
-    for fname in filenames:
-        if fname in processed_documents:
-            relevant_lc_documents.extend(processed_documents[fname])
-        else:
-            logger.warning(f"Processed data not found for file: {fname}. Skipping.")
+    # The RAGEngine is already initialized globally and attempts to load the index on startup.
+    # The setup_qa_chain method is now called within the query method if needed.
+    # We no longer need to recreate the vector store here for each query.
 
-    if not relevant_lc_documents:
-         raise HTTPException(status_code=404, detail="No processed data found for the specified files.")
+    # Instead of gathering documents here, the RAGEngine's retriever will use the
+    # globally loaded/updated vector store which contains data from all processed docs.
+    # However, the RAGEngine query method currently doesn't filter by filename. 
+    # To implement multi-document querying where the query is scoped to selected files,
+    # we would need to either: 
+    # 1. Pass the selected filenames to the RAGEngine.query method and modify it
+    #    to filter the retrieval by source filename metadata.
+    # 2. Create a temporary filtered vector store for each query based on selected files.
+    # Approach 1 is generally more efficient.
 
-    # Initialize RAGEngine and create a vector store from the relevant documents
+    # For now, the RAGEngine.query method will query against the index of ALL uploaded documents.
+    # We will update the RAGEngine query method later to filter by filenames if needed for true multi-doc querying.
+
+    # Ensure the RAGEngine is initialized and attempts to load the vector store
+    # The query method itself now handles calling setup_qa_chain.
+    # No need to explicitly call setup_qa_chain here.
+
+    # The filenames are used by the frontend to indicate context, 
+    # but the current RAGEngine queries the combined index.
+    # TODO: Enhance RAGEngine.query to use the filenames list for retrieval filtering.
+
+    logger.info(f"Querying with filenames: {filenames}. Using global vector store.")
+    
+    # Explicitly invoke the chain and process the output
     try:
-        rage_engine = RAGEngine()
-        rage_engine.create_vector_store_from_documents(relevant_lc_documents)
-        rage_engine.setup_qa_chain()
-        
-        # Explicitly invoke the chain and process the output
         chain_output = await rage_engine.qa_chain.ainvoke({"question": query})
         
         # The answer is in chain_output['answer'], sources are in chain_output['source_documents']
+
         response_answer = chain_output.get("answer", "Could not find an answer.")
         response_sources = [
             {
@@ -216,7 +254,13 @@ async def query_papers(request: QueryRequest):
 
     except Exception as e:
         logger.error(f"Error during RAG query: {e}")
-        raise HTTPException(status_code=500, detail=f"Error during RAG query: {e}")
+        # If QA chain is not initialized (e.g., no documents processed and index loading failed),
+        # the above ainvoke call would fail. Catching it here and returning a specific message.
+        if not rage_engine.qa_chain:
+             raise HTTPException(status_code=503, detail="RAG system not ready. Please upload and process a document.")
+        else:
+             # Re-raise other exceptions
+             raise HTTPException(status_code=500, detail=f"Error during RAG query: {e}")
 
 if __name__ == "__main__":
     import uvicorn
