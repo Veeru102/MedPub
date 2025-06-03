@@ -14,10 +14,9 @@ load_dotenv()
 
 class RAGEngine:
     def __init__(self):
-        # Initialize OpenAI client without proxies
+        # Initialize OpenAI client with minimal configuration
         self.openai_client = AsyncOpenAI(
-            api_key=os.getenv("OPENAI_API_KEY"),
-            base_url=os.getenv("OPENAI_API_BASE", "https://api.openai.com/v1")
+            api_key=os.getenv("OPENAI_API_KEY")
         )
         self.embeddings = OpenAIEmbeddings()
         self.vector_store = None
