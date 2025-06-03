@@ -1,0 +1,226 @@
+from fastapi import FastAPI, WebSocket, UploadFile, File, HTTPException, Body
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from typing import List, Optional, Dict, Any
+import os
+from dotenv import load_dotenv
+import json
+from datetime import datetime
+from pydantic import BaseModel
+import logging
+import faiss
+
+from .document_processor import DocumentProcessor
+from .rag_engine import RAGEngine
+from langchain_core.documents import Document # Import Document
+from langchain_community.document_loaders import PyMuPDFLoader # Updated import
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# Load environment variables
+load_dotenv()
+
+app = FastAPI(title="MedCopilot API")
+
+# Configure CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173"],  # Frontend URL
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Create uploads directory if it doesn't exist
+UPLOAD_DIR = "uploads"
+os.makedirs(UPLOAD_DIR, exist_ok=True)
+
+# In-memory storage for processed documents (for demonstration)
+# Stores Langchain Document objects with chunks and metadata
+processed_documents: Dict[str, List[Document]] = {}
+doc_processor = DocumentProcessor()
+# Initialize RAGEngine - Note: For a real app, manage its state/vector store persistently
+# rage_engine = RAGEngine() # Initialize once if managing vector store persistently
+
+
+class SummarizeRequest(BaseModel):
+    filename: str
+
+class QueryRequest(BaseModel):
+    query: str
+    filenames: Optional[List[str]] = None
+
+class DeleteRequest(BaseModel):
+    filename: str
+
+@app.get("/")
+async def root():
+    return {"message": "Welcome to MedCopilot API"}
+
+@app.post("/upload")
+async def upload_pdf(file: UploadFile = File(...)):
+    """
+    Upload a PDF file for processing
+    """
+    if not file.filename.endswith('.pdf'):
+        raise HTTPException(status_code=400, detail="Only PDF files are allowed")
+    
+    # Create a unique filename
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename = f"{timestamp}_{file.filename}"
+    file_path = os.path.join(UPLOAD_DIR, filename)
+    
+    # Save the file
+    try:
+        contents = await file.read()
+        with open(file_path, "wb") as f:
+            f.write(contents)
+        logger.info(f"File saved successfully: {file_path}")
+    except Exception as e:
+        logger.error(f"Error saving file: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    
+    # Process the file into Langchain Documents
+    try:
+        # The process_pdf method in DocumentProcessor now returns a list of Documents
+        lc_documents = doc_processor.process_pdf(file_path)
+        
+        processed_documents[filename] = lc_documents
+        logger.info(f"File processed successfully: {filename} with {len(lc_documents)} chunks")
+    except Exception as e:
+        logger.error(f"Error processing PDF: {e}")
+        # Clean up the uploaded file if processing fails
+        os.remove(file_path)
+        raise HTTPException(status_code=500, detail=f"Error processing PDF: {e}")
+    
+    return {"filename": filename, "message": "File uploaded and processed successfully"}
+
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket):
+    """
+    WebSocket endpoint for real-time communication
+    """
+    await websocket.accept()
+    try:
+        while True:
+            data = await websocket.receive_text()
+            # Process the message and send response
+            response = {"message": "Received your message", "data": data}
+            await websocket.send_json(response)
+    except Exception as e:
+        logger.error(f"WebSocket error: {e}")
+    finally:
+        await websocket.close()
+
+@app.post("/summarize")
+async def summarize_paper(request: SummarizeRequest):
+    """
+    Summarize a specific paper
+    """
+    logger.info(f"Received summarize request for file: {request.filename}")
+    filename = request.filename
+    
+    if filename not in processed_documents:
+        logger.error(f"Processed data not found for file: {filename}")
+        raise HTTPException(status_code=404, detail="Processed data not found for this file.")
+        
+    # Get chunks for the specific document
+    document_chunks = processed_documents[filename]
+    
+    # Initialize RAGEngine and summarize
+    rage_engine = RAGEngine()
+    # Pass the page_content of each Document object to the summarizer
+    chunks_text = [doc.page_content for doc in document_chunks]
+    summary_result = await rage_engine.summarize_paper(chunks_text)
+    
+    if summary_result.get("status") == "error":
+         logger.error(f"Summarization failed for {filename}: {summary_result.get("error")}")
+         raise HTTPException(status_code=500, detail=f"Summarization failed: {summary_result.get("error")}")
+
+    return {"message": summary_result.get("summary", "Summarization failed.")}
+
+@app.post("/delete_file")
+async def delete_file(request: DeleteRequest):
+    """
+    Delete a specific uploaded file
+    """
+    logger.info(f"Received delete request for file: {request.filename}")
+    filename = request.filename
+    file_path = os.path.join(UPLOAD_DIR, filename)
+
+    # Check if the file exists
+    if not os.path.exists(file_path):
+        logger.warning(f"File not found for deletion: {file_path}")
+        raise HTTPException(status_code=404, detail="File not found.")
+
+    # Delete the file from the filesystem
+    try:
+        os.remove(file_path)
+        logger.info(f"File deleted successfully: {file_path}")
+    except OSError as e:
+        logger.error(f"Error deleting file {file_path}: {e}")
+        raise HTTPException(status_code=500, detail=f"Error deleting file: {e}")
+
+    # Remove the processed document data from in-memory storage
+    if filename in processed_documents:
+        del processed_documents[filename]
+        logger.info(f"Removed processed data for: {filename}")
+
+    return {"message": "File deleted successfully"}
+
+@app.post("/query")
+async def query_papers(request: QueryRequest):
+    """
+    Query the uploaded papers using RAG
+    """
+    logger.info(f"Received query request: {request.model_dump_json()}")
+    query = request.query
+    filenames = request.filenames
+    
+    if not filenames:
+        raise HTTPException(status_code=400, detail="No papers specified for query")
+        
+    # Gather Langchain Document objects for the specified files
+    relevant_lc_documents = []
+    for fname in filenames:
+        if fname in processed_documents:
+            relevant_lc_documents.extend(processed_documents[fname])
+        else:
+            logger.warning(f"Processed data not found for file: {fname}. Skipping.")
+
+    if not relevant_lc_documents:
+         raise HTTPException(status_code=404, detail="No processed data found for the specified files.")
+
+    # Initialize RAGEngine and create a vector store from the relevant documents
+    try:
+        rage_engine = RAGEngine()
+        rage_engine.create_vector_store_from_documents(relevant_lc_documents)
+        rage_engine.setup_qa_chain()
+        
+        # Explicitly invoke the chain and process the output
+        chain_output = await rage_engine.qa_chain.ainvoke({"question": query})
+        
+        # The answer is in chain_output['answer'], sources are in chain_output['source_documents']
+        response_answer = chain_output.get("answer", "Could not find an answer.")
+        response_sources = [
+            {
+                "content": doc.page_content,
+                "metadata": doc.metadata
+            }
+            for doc in chain_output.get("source_documents", [])
+        ]
+        
+        return {"message": response_answer, "sources": response_sources}
+
+    except Exception as e:
+        logger.error(f"Error during RAG query: {e}")
+        raise HTTPException(status_code=500, detail=f"Error during RAG query: {e}")
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)
+
+# Remove the print statement for faiss version as it's not needed here
+# print(faiss.__version__) 
