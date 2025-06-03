@@ -1,9 +1,10 @@
 import fitz  # PyMuPDF
 from typing import List, Dict, Any
-from langchain_community.text_splitter import RecursiveCharacterTextSplitter
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.document_loaders import PyMuPDFLoader
 from langchain_core.documents import Document
 import os
+import logging
 
 class DocumentProcessor:
     def __init__(self, chunk_size: int = 1000, chunk_overlap: int = 200):
