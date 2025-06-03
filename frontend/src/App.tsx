@@ -1,6 +1,7 @@
 import React, { useState, useCallback, useMemo } from "react";
 
 // Placeholder component for the PDF viewer area - Keep for future use
+// @ts-ignore
 const PdfViewerPlaceholder: React.FC = () => (
     <div className="w-full h-96 bg-gray-100 flex items-center justify-center text-gray-500 italic rounded-md border border-dashed border-gray-300">
         PDF Preview Area (Implementation Needed)
@@ -137,11 +138,6 @@ const PDFUpload: React.FC<{ onUpload: (file: File) => void, uploading: boolean }
     }
   }, [onUpload]);
 
-   const handleRemoveFile = () => {
-       setSelectedFileName(null);
-       // Note: Actual file removal from backend/state would need implementation
-   };
-
   return (
     // Card container
     <div className="bg-white rounded-lg shadow-lg p-6 mb-8 border border-blue-200">
@@ -165,8 +161,6 @@ const PDFUpload: React.FC<{ onUpload: (file: File) => void, uploading: boolean }
                  <svg className="w-6 h-6 text-green-500 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
                )}
               <span>{selectedFileName}</span>
-              {/* Remove button - requires state management for actual removal */}
-              {/* {!uploading && <button onClick={handleRemoveFile} className="ml-3 text-red-500 hover:text-red-700">X</button>} */}
             </div>
           ) : (
             <>Drag and drop your PDF here, or <span className="text-blue-600 underline">browse files</span></>
@@ -473,6 +467,7 @@ const App: React.FC = () => {
   };
 
    // Placeholder for file removal - needs backend implementation
+  // @ts-ignore
   const handleRemoveFile = async (filename: string) => {
      // TODO: Implement backend endpoint for file deletion
      // For now, just remove from frontend state
