@@ -163,7 +163,7 @@ async def summarize_paper(request: SummarizeRequest):
     
     if summary_result.get("status") == "error":
         logger.error(f'Summarization failed for {filename}: {summary_result.get("error")}')
-        raise HTTPException(status_code=500, detail=f"Summarization failed: {summary_result.get("error")}")
+        raise HTTPException(status_code=500, detail=f"Summarization failed: {summary_result.get('error')}")
 
     return {"message": summary_result.get("summary", "Summarization failed.")}
 
