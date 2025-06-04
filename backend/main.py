@@ -10,6 +10,7 @@ from pydantic import BaseModel
 import logging
 import faiss
 from sklearn.metrics.pairwise import cosine_similarity
+import numpy as np
 
 from document_processor import DocumentProcessor
 from rag_engine import RAGEngine
@@ -285,12 +286,14 @@ async def get_sentence_explanation(request: ExplanationRequest):
         
         # Get embeddings for the sentence
         sentence_embedding = await rage_engine.embeddings.aembed_query(request.sentence)
+        sentence_embedding = np.array(sentence_embedding).reshape(1, -1)  # Reshape to 2D array
         
         # Calculate cosine similarity with all chunks
         similarities = []
         for doc in document_chunks:
             chunk_embedding = await rage_engine.embeddings.aembed_query(doc.page_content)
-            similarity = cosine_similarity(sentence_embedding, chunk_embedding)
+            chunk_embedding = np.array(chunk_embedding).reshape(1, -1)  # Reshape to 2D array
+            similarity = cosine_similarity(sentence_embedding, chunk_embedding)[0][0]  # Get scalar value
             similarities.append({
                 "content": doc.page_content,
                 "similarity": float(similarity),
