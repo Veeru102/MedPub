@@ -39,6 +39,9 @@ const Sidebar: React.FC<{ files: string[], onSummarize: (filename: string) => vo
               ? (summaries[file] === "Summarizing..." ? "Summarizing..." : "Summarized") 
               : "Ready";
 
+          // Extract original filename by removing timestamp prefix (YYYYMMDD_HHMMSS_)
+          const originalFilename = file.replace(/^\d{8}_\d{6}_/, '');
+
           // Parse date from filename format YYYYMMDD_HHMMSS
           const filenameParts = file.split('_');
           let uploadDate = 'Unknown Date';
@@ -62,7 +65,7 @@ const Sidebar: React.FC<{ files: string[], onSummarize: (filename: string) => vo
             >
               <div className="flex justify-between items-center mb-2">
                 {/* Suggestion: Add a document icon */} 
-                <span className={`flex-1 truncate font-medium ${isSelected ? 'text-white' : 'text-blue-400'} ${isCollapsed ? 'hidden' : 'mr-2'}`}>{file}</span>
+                <span className={`flex-1 truncate font-medium ${isSelected ? 'text-white' : 'text-blue-400'} ${isCollapsed ? 'hidden' : 'mr-2'}`}>{originalFilename}</span> {/* Use original filename here */}
                 {!isCollapsed && (
                    <span className={`flex-shrink-0 text-xs font-semibold px-2 py-1 rounded-full
                      ${summaryStatus === "Summarized" ? 'bg-green-600 text-white'
@@ -78,7 +81,8 @@ const Sidebar: React.FC<{ files: string[], onSummarize: (filename: string) => vo
                      {summaryStatus === "Ready" && (
                          <button onClick={(e) => { e.stopPropagation(); onSummarize(file); }} className="ml-2 text-blue-300 hover:text-blue-100">Summarize</button>
                      )}
-                     <button onClick={(e) => { e.stopPropagation(); onRemoveFile(file); }} className="ml-2 text-red-400 hover:text-red-300">Remove</button>
+                     {/* Ensure red text for remove and add hover effect */}
+                     <button onClick={(e) => { e.stopPropagation(); onRemoveFile(file); }} className="ml-2 text-red-400 hover:text-red-600 font-medium">Remove</button>
                   </div>
                )}
               {/* Summary preview (optional, could add a small snippet here if not collapsed) */}
@@ -144,7 +148,10 @@ const PDFUpload: React.FC<{ onUpload: (file: File) => void, uploading: boolean }
       <h3 className="text-xl font-semibold mb-4 text-blue-800">Upload Document</h3>
       
       <div 
-        className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors duration-200 ${isDragOver ? 'border-blue-500 bg-blue-50' : 'border-gray-300 bg-gray-50'}`}
+        className={`border-2 rounded-lg p-8 text-center transition-all duration-200 
+          ${isDragOver 
+            ? 'border-blue-500 bg-blue-50 border-solid' 
+            : 'border-gray-300 bg-gray-50 border-solid hover:border-blue-400 hover:bg-gray-100'}`}
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
@@ -197,7 +204,7 @@ const SummaryDisplay: React.FC<{ summary: string | null }> = ({ summary }) => {
           if (currentTitle !== null || currentContent.length > 0) {
               sections.push({
                   title: currentTitle ? currentTitle.replace(/^#+\s*/, '').replace(/\*\*/g, '') : null, // Remove markdown headings and **
-                  content: currentContent.join('\n').trim().replace(/^\*\*(.*?)\*\*:\s*/, '') // Remove bold markdown and leading colon/space from content start
+                  content: currentContent.join('\n').trim()//.replace(/^\*\*(.*?)\*\*:\s*/, '') // Remove bold markdown and leading colon/space from content start - REMOVED
               });
           }
           currentTitle = null;
@@ -207,24 +214,18 @@ const SummaryDisplay: React.FC<{ summary: string | null }> = ({ summary }) => {
       for (const line of lines) {
           const trimmedLine = line.trim();
 
-          // Check for markdown headings (###, ##, #)
-          if (trimmedLine.match(/^#+\s/) || headingsToFormat.some(heading => trimmedLine.startsWith(`**${heading}**`))) {
+          // Check for markdown headings (###, ##, #) or bold headings followed by colon
+          const boldHeadingMatch = trimmedLine.match(/^\*\*(.*?)\*\*:\s*/);
+          const markdownHeadingMatch = trimmedLine.match(/^#+\s(.*)/);
+
+          if (boldHeadingMatch) {
               addSection(); // Add previous section
-              // If it's one of the specific bold headings, capture the text inside **
-              if (headingsToFormat.some(heading => trimmedLine.startsWith(`**${heading}**`))) {
-                 const match = trimmedLine.match(/^\*\*(.*?)\*\*:\s*/);
-                 currentTitle = match ? match[1] + ":" : trimmedLine.replace(/\*\*/g, ''); // Capture content within ** and include the colon
-                 currentContent.push(trimmedLine.replace(/^\*\*(.*?)\*\*:\s*/, '').trim()); // Add the content after the heading
-              } else {
-                 currentTitle = trimmedLine.replace(/\*\*/g, ''); // Remove ** from other markdown headings
-              }
-          } else if (trimmedLine.match(/^\*\*(.*?)\*\*:/)) { // Check for bold text followed by colon (like in your example)
-              // This case is now handled by the combined heading check above, but keeping for robustness
-              addSection(); // Add previous section
-              currentTitle = trimmedLine.match(/^\*\*(.*?)\*\*:/)?.[1] || null; // Extract text inside ** and before :
-              currentContent.push(trimmedLine.replace(/^\*\*(.*?)\*\*:\s*/, '').trim()); // Add content after bold
-          } 
-          else if (trimmedLine) { // Non-empty line
+              currentTitle = boldHeadingMatch[1]; // Capture text inside **
+              currentContent = [trimmedLine.substring(boldHeadingMatch[0].length).trim()]; // Start content after the bold heading
+          } else if (markdownHeadingMatch) {
+               addSection(); // Add previous section
+               currentTitle = markdownHeadingMatch[1].trim(); // Capture text after markdown #
+          } else if (trimmedLine) { // Non-empty line
               currentContent.push(trimmedLine);
           } else if (currentContent.length > 0) { // Empty line as a potential paragraph break within content
               currentContent.push(''); // Preserve empty lines to some extent for spacing
@@ -234,7 +235,7 @@ const SummaryDisplay: React.FC<{ summary: string | null }> = ({ summary }) => {
 
        // Fallback if no sections were parsed but there was text
        if (sections.length === 0 && text.trim()) {
-           sections.push({ title: "Summary", content: text.trim().replace(/\*\*/g, '') }); // Remove ** from fallback content too
+           sections.push({ title: null, content: text.trim().replace(/\*\*/g, '') }); // Remove ** from fallback content too
        }
 
       return sections;
@@ -242,8 +243,21 @@ const SummaryDisplay: React.FC<{ summary: string | null }> = ({ summary }) => {
 
   const summarySections = useMemo(() => (summary ? parseAndFormatSummary(summary) : []), [summary]);
 
-  if (!summary || summary === "Summarizing...") {
-    return null; // Don't display card if no summary or summarizing
+  // Show a loading indicator if summary is in progress
+  if (summary === "Summarizing...") {
+      return (
+          <div className="bg-white rounded-lg shadow-lg p-6 mb-8 border border-blue-200 flex items-center justify-center">
+               <svg className="animate-spin h-8 w-8 text-blue-600 mr-3" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                 <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                 <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l2-2.647z"></path>
+               </svg>
+               <span className="text-lg text-blue-800">Generating Summary...</span>
+          </div>
+      );
+  }
+
+  if (!summary) {
+    return null; // Don't display card if no summary
   }
   
   const handleCopyToClipboard = () => {
@@ -400,7 +414,7 @@ const Chat: React.FC<{ files: string[] }> = ({ files }) => {
              onChange={(e) => setQuestion(e.target.value)}
              onKeyDown={handleKeyDown} // Handle Shift+Enter
              placeholder={placeholderText} // Use dynamic placeholder
-             className="flex-1 border border-gray-300 rounded-lg px-4 py-3 text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-shadow duration-200 resize-none"
+             className="flex-1 border border-gray-300 rounded-lg px-4 py-3 text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-shadow duration-200 resize-none placeholder-gray-500 bg-white" // Improved text/background contrast and explicit background
              disabled={loading || files.length === 0}
              rows={1} // Start with one row, will expand with content
            />
@@ -504,30 +518,30 @@ const App: React.FC = () => {
   };
 
   const handleFileSelect = (filename: string) => {
-    if (selectedFiles.includes(filename)) {
-      setSelectedFiles(prev => prev.filter(file => file !== filename));
-    } else {
-      setSelectedFiles(prev => [...prev, filename]);
-    }
+      // Toggle selection: if already selected, unselect. Otherwise, select just this one.
+      if (selectedFiles.includes(filename)) {
+          setSelectedFiles([]); // Clear selection
+      } else {
+          setSelectedFiles([filename]); // Select this file
+      }
   };
 
   return (
-    // Ensured full width with no max-width class
-    <div className="flex h-screen bg-gray-100 text-gray-900 font-sans w-full">
-      {/* Left Sidebar */}
+    <div className="flex h-screen bg-gray-100">
+      {/* Sidebar */}
       <Sidebar 
-         files={uploadedFiles} 
-         onSummarize={handleSummarize} 
-         summaries={summaries} 
-         isCollapsed={isSidebarCollapsed}
-         onFileSelect={handleFileSelect}
-         selectedFiles={selectedFiles}
-         onRemoveFile={handleRemoveFile}
-         onToggleCollapse={toggleSidebar}
+        files={uploadedFiles} 
+        onSummarize={handleSummarize} 
+        summaries={summaries}
+        isCollapsed={isSidebarCollapsed}
+        onFileSelect={handleFileSelect}
+        selectedFiles={selectedFiles}
+        onRemoveFile={handleRemoveFile}
+        onToggleCollapse={toggleSidebar} // Pass the toggle function
       />
 
-      {/* Main Content Area (Now the consolidated Right Panel) */}
-      {/* Adjusted styling to take remaining width and manage internal layout */}
+      {/* Main Content Area */}
+      {/* Added some padding here to the main content container */}
       <main className="flex-1 flex flex-col p-8 overflow-hidden bg-white">
          {/* Header with Title and Tagline */}
         <header className="mb-8">
