@@ -180,8 +180,11 @@ const PDFUpload: React.FC<{ onUpload: (file: File) => void, uploading: boolean }
 };
 
 // Helper component for AI Summary display
-const SummaryDisplay: React.FC<{ summary: string | null }> = ({ summary }) => {
+const SummaryDisplay: React.FC<{ summary: string | null, filename: string }> = ({ summary, filename }) => {
   const [isCollapsed, setIsCollapsed] = useState(false);
+  const [selectedSentence, setSelectedSentence] = useState<string | null>(null);
+  const [explanation, setExplanation] = useState<any>(null);
+  const [loadingExplanation, setLoadingExplanation] = useState(false);
 
   // Define the specific headings to format
   const headingsToFormat = [
@@ -192,6 +195,33 @@ const SummaryDisplay: React.FC<{ summary: string | null }> = ({ summary }) => {
       "Key Objectives:",
       "Suggested Related Papers:"
   ];
+
+  const handleSentenceClick = async (sentence: string) => {
+    if (selectedSentence === sentence) {
+      setSelectedSentence(null);
+      setExplanation(null);
+      return;
+    }
+
+    setSelectedSentence(sentence);
+    setLoadingExplanation(true);
+    try {
+      const response = await fetch(`${BACKEND_URL}/explanation`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ filename, sentence })
+      });
+      
+      if (!response.ok) throw new Error('Failed to fetch explanation');
+      const data = await response.json();
+      setExplanation(data);
+    } catch (error) {
+      console.error('Error fetching explanation:', error);
+      // You might want to show an error toast here
+    } finally {
+      setLoadingExplanation(false);
+    }
+  };
 
   // Advanced parsing for sections and stripping markdown
   const parseAndFormatSummary = (text: string) => {
@@ -287,12 +317,67 @@ const SummaryDisplay: React.FC<{ summary: string | null }> = ({ summary }) => {
                    <h4 className={`${headingsToFormat.includes(section.title) ? 'text-xl font-bold text-blue-800' : 'text-lg font-semibold'} mb-2`}>{section.title}</h4>
                  )}
                  {section.content.split('\n').map((paragraph, pIdx) => (
-                   <p key={pIdx} className="mb-2 last:mb-0">{paragraph}</p>
+                   <p key={pIdx} className="mb-2 last:mb-0">
+                     {paragraph.split(/[.!?]+/).map((sentence, sIdx) => {
+                       const trimmedSentence = sentence.trim();
+                       if (!trimmedSentence) return null;
+                       
+                       return (
+                         <span
+                           key={sIdx}
+                           onClick={() => handleSentenceClick(trimmedSentence)}
+                           className={`cursor-pointer hover:bg-yellow-100 px-1 rounded ${
+                             selectedSentence === trimmedSentence ? 'bg-yellow-200' : ''
+                           }`}
+                         >
+                           {trimmedSentence}
+                           {sIdx < paragraph.split(/[.!?]+/).length - 2 ? '. ' : ''}
+                         </span>
+                       );
+                     })}
+                   </p>
                  ))}
                </div>
              ))}
            </div>
        )}
+
+        {/* Explanation Panel */}
+        {selectedSentence && (
+          <div className="mt-4 p-4 bg-gray-50 rounded-lg border border-gray-200">
+            <h5 className="font-semibold text-gray-800 mb-2">Source Evidence</h5>
+            {loadingExplanation ? (
+              <div className="flex items-center justify-center py-4">
+                <svg className="animate-spin h-5 w-5 text-blue-600 mr-2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l2-2.647z"></path>
+                </svg>
+                <span>Loading explanation...</span>
+              </div>
+            ) : explanation ? (
+              <div>
+                <div className="mb-2 text-sm text-gray-600">
+                  Confidence: {(explanation.confidence * 100).toFixed(1)}%
+                </div>
+                {explanation.source_chunks.map((chunk: any, idx: number) => (
+                  <div key={idx} className="mb-3 p-3 bg-white rounded border border-gray-200">
+                    <div className="text-sm text-gray-600 mb-1">
+                      Similarity: {(chunk.similarity * 100).toFixed(1)}%
+                    </div>
+                    <p className="text-gray-800">{chunk.content}</p>
+                    {chunk.metadata.page && (
+                      <div className="text-xs text-gray-500 mt-1">
+                        Page {chunk.metadata.page}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="text-gray-600 italic">No explanation available</div>
+            )}
+          </div>
+        )}
 
         <button 
            onClick={handleCopyToClipboard} 
@@ -561,7 +646,10 @@ const App: React.FC = () => {
              <div className="flex-1 flex flex-col gap-8">
                 {/* Display summary only if ONE file is selected and summarized */}
                 {selectedFiles.length === 1 && summaries[selectedFiles[0]] && summaries[selectedFiles[0]] !== "Summarizing..." && (
-                   <SummaryDisplay summary={summaries[selectedFiles[0]]} />
+                   <SummaryDisplay 
+                     summary={summaries[selectedFiles[0]]} 
+                     filename={selectedFiles[0]}
+                   />
                 )}
                  {/* Chat takes remaining vertical space below summary if visible */}
                 {/* Ensure chat container grows */} 

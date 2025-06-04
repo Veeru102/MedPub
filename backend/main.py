@@ -9,6 +9,7 @@ from datetime import datetime
 from pydantic import BaseModel
 import logging
 import faiss
+from sklearn.metrics.pairwise import cosine_similarity
 
 from document_processor import DocumentProcessor
 from rag_engine import RAGEngine
@@ -53,6 +54,10 @@ async def startup_event():
 
 class SummarizeRequest(BaseModel):
     filename: str
+
+class ExplanationRequest(BaseModel):
+    filename: str
+    sentence: str
 
 class QueryRequest(BaseModel):
     query: str
@@ -261,6 +266,52 @@ async def query_papers(request: QueryRequest):
         else:
              # Re-raise other exceptions
              raise HTTPException(status_code=500, detail=f"Error during RAG query: {e}")
+
+@app.post("/explanation")
+async def get_sentence_explanation(request: ExplanationRequest):
+    """
+    Get source passages and confidence scores for a specific sentence in the summary
+    """
+    logger.info(f"Received explanation request for sentence in file: {request.filename}")
+    filename = request.filename
+    
+    if filename not in processed_documents:
+        logger.error(f"Processed data not found for file: {filename}")
+        raise HTTPException(status_code=404, detail="Processed data not found for this file.")
+    
+    try:
+        # Get the document chunks
+        document_chunks = processed_documents[filename]
+        
+        # Get embeddings for the sentence
+        sentence_embedding = await rage_engine.embeddings.aembed_query(request.sentence)
+        
+        # Calculate cosine similarity with all chunks
+        similarities = []
+        for doc in document_chunks:
+            chunk_embedding = await rage_engine.embeddings.aembed_query(doc.page_content)
+            similarity = cosine_similarity(sentence_embedding, chunk_embedding)
+            similarities.append({
+                "content": doc.page_content,
+                "similarity": float(similarity),
+                "metadata": doc.metadata
+            })
+        
+        # Sort by similarity and get top 3 most relevant chunks
+        similarities.sort(key=lambda x: x["similarity"], reverse=True)
+        top_chunks = similarities[:3]
+        
+        # Calculate overall confidence (average of top similarities)
+        confidence = sum(chunk["similarity"] for chunk in top_chunks) / len(top_chunks) if top_chunks else 0
+        
+        return {
+            "source_chunks": top_chunks,
+            "confidence": confidence
+        }
+        
+    except Exception as e:
+        logger.error(f"Error getting sentence explanation: {e}")
+        raise HTTPException(status_code=500, detail=f"Error getting sentence explanation: {e}")
 
 if __name__ == "__main__":
     import uvicorn
