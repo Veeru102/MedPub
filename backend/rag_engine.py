@@ -1,24 +1,36 @@
 from typing import List, Dict, Any
 import os
-from langchain_community.embeddings import OpenAIEmbeddings
+from langchain_openai import OpenAIEmbeddings, ChatOpenAI
 from langchain_community.vectorstores import FAISS
-from langchain_community.chat_models import ChatOpenAI
 from langchain.chains import ConversationalRetrievalChain
 from langchain.memory import ConversationBufferMemory
 from langchain_core.documents import Document
 import openai
 from openai import AsyncOpenAI
 from dotenv import load_dotenv
+import logging
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 load_dotenv()
 
 class RAGEngine:
     def __init__(self):
+        api_key = os.getenv("OPENAI_API_KEY")
+        if not api_key:
+            raise ValueError("OPENAI_API_KEY environment variable is not set")
+            
         # Initialize OpenAI client with minimal configuration
-        self.openai_client = AsyncOpenAI(
-            api_key=os.getenv("OPENAI_API_KEY")
-        )
-        self.embeddings = OpenAIEmbeddings()
+        self.openai_client = AsyncOpenAI(api_key=api_key)
+        
+        try:
+            self.embeddings = OpenAIEmbeddings()
+        except Exception as e:
+            logger.error(f"Failed to initialize OpenAI embeddings: {e}")
+            raise
+            
         self.vector_store = None
         self.qa_chain = None
         self.memory = ConversationBufferMemory(
@@ -33,12 +45,16 @@ class RAGEngine:
         """
         Create a FAISS vector store from document chunks
         """
-        self.vector_store = FAISS.from_texts(
-            chunks,
-            self.embeddings,
-            metadatas=[metadata] * len(chunks) if metadata else None
-        )
-        self.save_vector_store()
+        try:
+            self.vector_store = FAISS.from_texts(
+                chunks,
+                self.embeddings,
+                metadatas=[metadata] * len(chunks) if metadata else None
+            )
+            self.save_vector_store()
+        except Exception as e:
+            logger.error(f"Failed to create vector store: {e}")
+            raise
 
     def create_vector_store_from_documents(self, documents: List[Document]):
         """
@@ -47,16 +63,24 @@ class RAGEngine:
         if not documents:
             raise ValueError("Cannot create vector store from empty documents list.")
 
-        self.vector_store = FAISS.from_documents(documents, self.embeddings)
-        self.save_vector_store()
+        try:
+            self.vector_store = FAISS.from_documents(documents, self.embeddings)
+            self.save_vector_store()
+        except Exception as e:
+            logger.error(f"Failed to create vector store from documents: {e}")
+            raise
 
     def save_vector_store(self):
         """
         Save the current FAISS vector store to disk.
         """
         if self.vector_store:
-            self.vector_store.save_local(self.faiss_index_path)
-            print(f"FAISS index saved to {self.faiss_index_path}")
+            try:
+                self.vector_store.save_local(self.faiss_index_path)
+                logger.info(f"FAISS index saved to {self.faiss_index_path}")
+            except Exception as e:
+                logger.error(f"Failed to save FAISS index: {e}")
+                raise
 
     def load_vector_store(self):
         """
@@ -67,52 +91,56 @@ class RAGEngine:
                 self.vector_store = FAISS.load_local(
                     self.faiss_index_path,
                     self.embeddings,
-                    allow_dangerous_deserialization=True  # Required for loading
+                    allow_dangerous_deserialization=True
                 )
-                print(f"FAISS index loaded from {self.faiss_index_path}")
+                logger.info(f"FAISS index loaded from {self.faiss_index_path}")
             except Exception as e:
-                print(f"Error loading FAISS index: {e}")
-                self.vector_store = None # Ensure vector store is None if loading fails
+                logger.error(f"Error loading FAISS index: {e}")
+                self.vector_store = None
         else:
-            print("No existing FAISS index found.")
+            logger.info("No existing FAISS index found.")
+            self.vector_store = None
 
     def setup_qa_chain(self):
         """
         Set up the QA chain with the vector store
         """
         if not self.vector_store:
-            # Attempt to load the vector store if not initialized
             self.load_vector_store()
             if not self.vector_store:
-                # If still not initialized, it means no index file exists or loading failed
-                # We can proceed without a vector store, but queries will not be grounded.
-                # Or raise an error if RAG is strictly required.
-                print("Warning: Vector store not available. RAG queries will not function.")
-                self.qa_chain = None # Ensure qa_chain is None if vector store is not available
-                return # Exit the function
+                logger.warning("Vector store not available. RAG queries will not function.")
+                self.qa_chain = None
+                return
 
-        # Proceed with setting up the QA chain if vector store is available
-        # Ensure only one memory instance is created per RAGEngine instance
-        if not self.qa_chain or self.qa_chain.memory != self.memory:
-            self.qa_chain = ConversationalRetrievalChain.from_llm(
-                llm=ChatOpenAI(temperature=0),
-                retriever=self.vector_store.as_retriever(),
-                memory=self.memory,
-                return_source_documents=True,
-                output_key="answer"
-            )
+        try:
+            if not self.qa_chain or self.qa_chain.memory != self.memory:
+                self.qa_chain = ConversationalRetrievalChain.from_llm(
+                    llm=ChatOpenAI(temperature=0),
+                    retriever=self.vector_store.as_retriever(),
+                    memory=self.memory,
+                    return_source_documents=True,
+                    output_key="answer"
+                )
+        except Exception as e:
+            logger.error(f"Failed to setup QA chain: {e}")
+            self.qa_chain = None
+            raise
 
     async def query(self, question: str) -> Dict[str, Any]:
         """
         Query the RAG system with a question
         """
-        # Ensure the QA chain is set up before querying. It will attempt to load the index.
         if not self.qa_chain or self.qa_chain.retriever.vectorstore != self.vector_store:
-            self.setup_qa_chain()
+            try:
+                self.setup_qa_chain()
+            except Exception as e:
+                logger.error(f"Failed to setup QA chain during query: {e}")
+                return {
+                    "answer": "An error occurred while setting up the RAG system. Please try again.",
+                    "sources": []
+                }
 
         if not self.qa_chain:
-            # If QA chain is still not initialized after setup_qa_chain,
-            # it means the vector store was not available.
             return {
                 "answer": "The RAG system is not initialized. Please upload and process a document first.",
                 "sources": []
@@ -131,7 +159,7 @@ class RAGEngine:
                 ]
             }
         except Exception as e:
-            print(f"Error in RAG query: {e}")
+            logger.error(f"Error in RAG query: {e}")
             raise
 
     async def summarize_paper(self, chunks: List[str]) -> Dict[str, Any]:
@@ -163,7 +191,7 @@ Paper content:
 """
 
             response = await self.openai_client.chat.completions.create(
-                model="gpt-4o",
+                model="gpt-4o",  
                 messages=[
                     {"role": "system", "content": "You are a medical research assistant specializing in paper analysis and summarization."},
                     {"role": "user", "content": prompt}
@@ -177,7 +205,7 @@ Paper content:
             }
 
         except Exception as e:
-            print(f"Error in paper summarization: {e}")
+            logger.error(f"Error in paper summarization: {e}")
             return {
                 "summary": "Error generating summary",
                 "status": "error",

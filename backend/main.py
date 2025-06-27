@@ -24,6 +24,11 @@ logger = logging.getLogger(__name__)
 # Load environment variables
 load_dotenv()
 
+# Verify OpenAI API key is set
+if not os.getenv("OPENAI_API_KEY"):
+    logger.error("OPENAI_API_KEY environment variable is not set")
+    raise ValueError("OPENAI_API_KEY environment variable is not set")
+
 app = FastAPI(title="MedCopilot API")
 
 # Configure CORS
@@ -39,7 +44,6 @@ app.add_middleware(
 UPLOAD_DIR = "uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
-# In-memory storage for processed documents (for demonstration)
 # Stores Langchain Document objects with chunks and metadata
 processed_documents: Dict[str, List[Document]] = {}
 doc_processor = DocumentProcessor()
@@ -50,7 +54,10 @@ rage_engine = RAGEngine()
 @app.on_event("startup")
 async def startup_event():
     logger.info("Application startup: Loading FAISS index...")
-    rage_engine.load_vector_store()
+    try:
+        rage_engine.load_vector_store()
+    except Exception as e:
+        logger.error(f"Failed to load FAISS index during startup: {e}")
 
 
 class SummarizeRequest(BaseModel):
@@ -77,6 +84,7 @@ async def upload_pdf(file: UploadFile = File(...)):
     Upload a PDF file for processing
     """
     if not file.filename.endswith('.pdf'):
+        logger.warning(f"Invalid file type attempted: {file.filename}")
         raise HTTPException(status_code=400, detail="Only PDF files are allowed")
     
     # Create a unique filename
@@ -91,43 +99,56 @@ async def upload_pdf(file: UploadFile = File(...)):
             f.write(contents)
         logger.info(f"File saved successfully: {file_path}")
     except Exception as e:
-        logger.error(f"Error saving file: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Error saving file {filename}: {e}")
+        raise HTTPException(status_code=500, detail=f"Error saving file: {str(e)}")
     
     # Process the file into Langchain Documents
     try:
-        # The process_pdf method in DocumentProcessor now returns a list of Documents
+        logger.info(f"Processing file: {filename}")
         lc_documents = doc_processor.process_pdf(file_path)
         
-        # Store processed documents and update the global RAGEngine's vector store
+        if not lc_documents:
+            logger.warning(f"No documents extracted from {filename}")
+            raise HTTPException(status_code=400, detail="Could not extract any content from the PDF")
+            
+        logger.info(f"Successfully processed {len(lc_documents)} chunks from {filename}")
+        
+        # Store processed documents
         processed_documents[filename] = lc_documents
         
-        # Pass the new documents to the RAGEngine to update the vector store
-        # The RAGEngine should handle adding these to the existing index or creating a new one
-        # For simplicity now, we recreate the index with all current documents. 
-        # A more efficient approach would be incremental indexing.
-        all_processed_documents = []
-        for doc_list in processed_documents.values():
-             all_processed_documents.extend(doc_list)
-        
-        if all_processed_documents:
-             rage_engine.create_vector_store_from_documents(all_processed_documents)
-             # Ensure the QA chain is updated with the new vector store
-             rage_engine.setup_qa_chain()
-        
-        logger.info(f"File processed successfully: {filename} with {len(lc_documents)} chunks. Vector store updated.")
-        return {"filename": filename, "message": "File uploaded and processed successfully"}
-        
+        # Update vector store
+        try:
+            all_processed_documents = []
+            for doc_list in processed_documents.values():
+                all_processed_documents.extend(doc_list)
+            
+            if all_processed_documents:
+                logger.info("Updating vector store...")
+                rage_engine.create_vector_store_from_documents(all_processed_documents)
+                rage_engine.setup_qa_chain()
+                logger.info("Vector store updated successfully")
+            
+            return {"filename": filename, "message": "File uploaded and processed successfully"}
+            
+        except Exception as e:
+            logger.error(f"Error updating vector store: {e}")
+            # Even if vector store update fails, we keep the processed documents
+            return {
+                "filename": filename,
+                "message": "File uploaded and processed, but vector store update failed. Some features may be limited.",
+                "warning": str(e)
+            }
+            
     except Exception as e:
-        logger.error(f"Error processing PDF or updating vector store: {e}")
+        logger.error(f"Error processing PDF {filename}: {e}")
         # Clean up the uploaded file if processing fails
         try:
             os.remove(file_path)
-            logger.info(f"Cleaned up {file_path} after processing error.")
+            logger.info(f"Cleaned up {file_path} after processing error")
         except OSError as cleanup_error:
             logger.error(f"Error cleaning up file {file_path}: {cleanup_error}")
 
-        raise HTTPException(status_code=500, detail=f"Error processing PDF or updating vector store: {e}")
+        raise HTTPException(status_code=500, detail=f"Error processing PDF: {str(e)}")
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
@@ -156,22 +177,27 @@ async def summarize_paper(request: SummarizeRequest):
     
     if filename not in processed_documents:
         logger.error(f"Processed data not found for file: {filename}")
-        raise HTTPException(status_code=404, detail="Processed data not found for this file.")
+        raise HTTPException(status_code=404, detail="Processed data not found for this file")
         
-    # Get chunks for the specific document
     document_chunks = processed_documents[filename]
     
-    # Initialize RAGEngine and summarize
-    rage_engine = RAGEngine()
-    # Pass the page_content of each Document object to the summarizer
-    chunks_text = [doc.page_content for doc in document_chunks]
-    summary_result = await rage_engine.summarize_paper(chunks_text)
+    if not document_chunks:
+        logger.warning(f"No chunks found for file: {filename}")
+        raise HTTPException(status_code=400, detail="No content available for summarization")
     
-    if summary_result.get("status") == "error":
-        logger.error(f'Summarization failed for {filename}: {summary_result.get("error")}')
-        raise HTTPException(status_code=500, detail=f"Summarization failed: {summary_result.get('error')}")
+    try:
+        chunks_text = [doc.page_content for doc in document_chunks]
+        summary_result = await rage_engine.summarize_paper(chunks_text)
+        
+        if summary_result.get("status") == "error":
+            logger.error(f'Summarization failed for {filename}: {summary_result.get("error")}')
+            raise HTTPException(status_code=500, detail=f"Summarization failed: {summary_result.get('error')}")
 
-    return {"message": summary_result.get("summary", "Summarization failed.")}
+        return {"message": summary_result.get("summary", "Summarization failed")}
+        
+    except Exception as e:
+        logger.error(f"Error summarizing {filename}: {e}")
+        raise HTTPException(status_code=500, detail=f"Error during summarization: {str(e)}")
 
 @app.post("/delete_file")
 async def delete_file(request: DeleteRequest):
@@ -182,25 +208,43 @@ async def delete_file(request: DeleteRequest):
     filename = request.filename
     file_path = os.path.join(UPLOAD_DIR, filename)
 
-    # Check if the file exists
     if not os.path.exists(file_path):
         logger.warning(f"File not found for deletion: {file_path}")
-        raise HTTPException(status_code=404, detail="File not found.")
+        raise HTTPException(status_code=404, detail="File not found")
 
-    # Delete the file from the filesystem
     try:
         os.remove(file_path)
         logger.info(f"File deleted successfully: {file_path}")
+        
+        # Remove from processed documents
+        if filename in processed_documents:
+            del processed_documents[filename]
+            logger.info(f"Removed {filename} from processed documents")
+            
+        # Update vector store
+        try:
+            all_processed_documents = []
+            for doc_list in processed_documents.values():
+                all_processed_documents.extend(doc_list)
+            
+            if all_processed_documents:
+                logger.info("Updating vector store after file deletion...")
+                rage_engine.create_vector_store_from_documents(all_processed_documents)
+                rage_engine.setup_qa_chain()
+                logger.info("Vector store updated successfully")
+                
+        except Exception as e:
+            logger.error(f"Error updating vector store after deletion: {e}")
+            return {
+                "message": "File deleted, but vector store update failed. Some features may be limited.",
+                "warning": str(e)
+            }
+            
+        return {"message": "File deleted successfully"}
+        
     except OSError as e:
         logger.error(f"Error deleting file {file_path}: {e}")
-        raise HTTPException(status_code=500, detail=f"Error deleting file: {e}")
-
-    # Remove the processed document data from in-memory storage
-    if filename in processed_documents:
-        del processed_documents[filename]
-        logger.info(f"Removed processed data for: {filename}")
-
-    return {"message": "File deleted successfully"}
+        raise HTTPException(status_code=500, detail=f"Error deleting file: {str(e)}")
 
 @app.post("/query")
 async def query_papers(request: QueryRequest):
