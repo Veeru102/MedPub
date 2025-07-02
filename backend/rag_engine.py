@@ -115,13 +115,30 @@ class RAGEngine:
 
         try:
             if not self.qa_chain or self.qa_chain.memory != self.memory:
-                self.qa_chain = ConversationalRetrievalChain.from_llm(
-                    llm=ChatOpenAI(temperature=0),
-                    retriever=self.vector_store.as_retriever(),
-                    memory=self.memory,
-                    return_source_documents=True,
-                    output_key="answer"
-                )
+
+
+                models_to_try = ["gpt-4o-mini", "gpt-4-turbo", "gpt-4", "gpt-3.5-turbo"]
+                
+                qa_chain_created = False
+                for model_name in models_to_try:
+                    try:
+                        self.qa_chain = ConversationalRetrievalChain.from_llm(
+                            llm=ChatOpenAI(model_name=model_name, temperature=0),
+                            retriever=self.vector_store.as_retriever(),
+                            memory=self.memory,
+                            return_source_documents=True,
+                            output_key="answer"
+                        )
+                        logger.info(f"Successfully created QA chain with model: {model_name}")
+                        qa_chain_created = True
+                        break
+                    except Exception as e:
+                        logger.warning(f"Failed to create QA chain with model {model_name}: {e}")
+                        continue
+                
+                if not qa_chain_created:
+                    raise Exception("Failed to create QA chain with any available model")
+                    
         except Exception as e:
             logger.error(f"Failed to setup QA chain: {e}")
             self.qa_chain = None
@@ -191,14 +208,30 @@ Paper content:
 {full_text}
 """
 
-            response = await self.openai_client.chat.completions.create(
-                model="gpt-4",  
-                messages=[
-                    {"role": "system", "content": "You are a medical research assistant specializing in paper analysis and summarization."},
-                    {"role": "user", "content": prompt}
-                ],
-                temperature=0.3
-            )
+            models_to_try = ["gpt-4o-mini", "gpt-4-turbo", "gpt-4", "gpt-3.5-turbo"]
+            
+            response = None
+            last_error = None
+            
+            for model_name in models_to_try:
+                try:
+                    response = await self.openai_client.chat.completions.create(
+                        model=model_name,  
+                        messages=[
+                            {"role": "system", "content": "You are a medical research assistant specializing in paper analysis and summarization."},
+                            {"role": "user", "content": prompt}
+                        ],
+                        temperature=0.3
+                    )
+                    logger.info(f"Successfully used model: {model_name}")
+                    break
+                except Exception as e:
+                    logger.warning(f"Failed to use model {model_name}: {e}")
+                    last_error = e
+                    continue
+            
+            if response is None:
+                raise Exception(f"All models failed. Last error: {last_error}")
 
             return {
                 "summary": response.choices[0].message.content,
