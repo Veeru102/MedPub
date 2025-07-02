@@ -191,15 +191,7 @@ const SummaryDisplay: React.FC<{ summary: string | null, filename: string }> = (
   const [loadingExplanation, setLoadingExplanation] = useState(false);
   const [showExplanationResult, setShowExplanationResult] = useState(false);
 
-  // Define the specific headings to format
-  const headingsToFormat = [
-      "Limitations:",
-      "Major Findings:",
-      "Methodology:",
-      "Summary of the Paper:",
-      "Key Objectives:",
-      "Suggested Related Papers:"
-  ];
+
 
   const handleTextHighlight = async (selectedText: string, context: string) => {
     const question = prompt("What would you like to know about this text?");
@@ -233,32 +225,7 @@ const SummaryDisplay: React.FC<{ summary: string | null, filename: string }> = (
     }
   };
 
-  const handleSentenceClick = async (sentence: string) => {
-    if (selectedSentence === sentence) {
-      setSelectedSentence(null);
-      setExplanation(null);
-      return;
-    }
 
-    setSelectedSentence(sentence);
-    setLoadingExplanation(true);
-    try {
-      const response = await fetch(`${BACKEND_URL}/explanation`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ filename, sentence })
-      });
-      
-      if (!response.ok) throw new Error('Failed to fetch explanation');
-      const data = await response.json();
-      setExplanation(data);
-    } catch (error) {
-      console.error('Error fetching explanation:', error);
-      // You might want to show an error toast here
-    } finally {
-      setLoadingExplanation(false);
-    }
-  };
 
   // Advanced parsing for sections and stripping markdown
   const parseAndFormatSummary = (text: string) => {
@@ -308,7 +275,7 @@ const SummaryDisplay: React.FC<{ summary: string | null, filename: string }> = (
       return sections;
   };
 
-  const summarySections = useMemo(() => (summary ? parseAndFormatSummary(summary) : []), [summary]);
+
 
   // Show a loading indicator if summary is in progress
   if (summary === "Summarizing...") {
@@ -551,7 +518,7 @@ const App: React.FC = () => {
   const [selectedAudience, setSelectedAudience] = useState<AudienceType>('clinician');
   const [showPdfViewer, setShowPdfViewer] = useState(false);
   const [relatedDocuments, setRelatedDocuments] = useState<any[]>([]);
-  const [promptHistory, setPromptHistory] = useState<{prompt: string, response: string, timestamp: Date}[]>([]);
+
 
   const handleUpload = async (file: File) => {
     setUploading(true);
@@ -610,12 +577,7 @@ const App: React.FC = () => {
       const data = await res.json();
       setSummaries((prev) => ({ ...prev, [filename]: data.message }));
       
-      // Add to prompt history
-      setPromptHistory(prev => [...prev, {
-        prompt: `Summarize ${filename} for ${selectedAudience}`,
-        response: data.message,
-        timestamp: new Date()
-      }]);
+
     } catch (err) {
       console.error("Summarization error:", err);
       setSummaries(prev => ({ ...prev, [filename]: `Summarization failed: ${err}` })); // Keep error message in state

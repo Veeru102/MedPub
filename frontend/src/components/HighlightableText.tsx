@@ -6,11 +6,7 @@ interface HighlightableTextProps {
   className?: string;
 }
 
-interface TextExplanation {
-  text: string;
-  explanation: string;
-  position: { x: number; y: number };
-}
+
 
 const HighlightableText: React.FC<HighlightableTextProps> = ({ text, onHighlight, className = '' }) => {
   const [selectedText, setSelectedText] = useState('');
