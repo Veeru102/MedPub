@@ -14,6 +14,8 @@ import numpy as np
 
 from document_processor import DocumentProcessor
 from rag_engine import RAGEngine
+from enhanced_document_processor import EnhancedDocumentProcessor
+from llm_services import LLMService
 from langchain_core.documents import Document # Import Document
 from langchain_community.document_loaders import PyMuPDFLoader # Updated import
 
@@ -52,7 +54,10 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 # Stores Langchain Document objects with chunks and metadata
 processed_documents: Dict[str, List[Document]] = {}
+document_sections: Dict[str, Dict[str, Any]] = {}  # Store section information
 doc_processor = DocumentProcessor()
+enhanced_processor = EnhancedDocumentProcessor()
+llm_service = LLMService()
 
 # Initialize RAGEngine globally
 rage_engine = RAGEngine()
@@ -69,10 +74,26 @@ async def startup_event():
 
 class SummarizeRequest(BaseModel):
     filename: str
+    audience_type: Optional[str] = "clinician"  # patient, clinician, researcher
 
 class ExplanationRequest(BaseModel):
     filename: str
     sentence: str
+
+class ExplainTextRequest(BaseModel):
+    filename: str
+    selected_text: str
+    context: str
+    question: str
+    audience_type: Optional[str] = "patient"
+
+class QueryDocRequest(BaseModel):
+    question: str
+    document_id: str
+    
+class SynthesizeRequest(BaseModel):
+    filenames: List[str]
+    synthesis_type: Optional[str] = "comparison"  # comparison, evolution, consensus, methods
 
 class QueryRequest(BaseModel):
     query: str
@@ -112,7 +133,8 @@ async def upload_pdf(file: UploadFile = File(...)):
     # Process the file into Langchain Documents
     try:
         logger.info(f"Processing file: {filename}")
-        lc_documents = doc_processor.process_pdf(file_path)
+        # Use enhanced processor for better chunking and section detection
+        lc_documents, doc_info = enhanced_processor.process_pdf_enhanced(file_path)
         
         if not lc_documents:
             logger.warning(f"No documents extracted from {filename}")
@@ -120,8 +142,14 @@ async def upload_pdf(file: UploadFile = File(...)):
             
         logger.info(f"Successfully processed {len(lc_documents)} chunks from {filename}")
         
-        # Store processed documents
+        # Store processed documents and section information
         processed_documents[filename] = lc_documents
+        document_sections[filename] = doc_info
+        
+        # Extract topics for clustering
+        full_text = '\n'.join([doc.page_content for doc in lc_documents[:5]])  # Use first 5 chunks
+        topics = await llm_service.extract_key_topics(full_text)
+        doc_info['topics'] = topics
         
         # Update vector store with rate limiting
         try:
@@ -177,9 +205,9 @@ async def websocket_endpoint(websocket: WebSocket):
 @app.post("/summarize")
 async def summarize_paper(request: SummarizeRequest):
     """
-    Summarize a specific paper
+    Summarize a specific paper with audience-specific formatting
     """
-    logger.info(f"Received summarize request for file: {request.filename}")
+    logger.info(f"Received summarize request for file: {request.filename}, audience: {request.audience_type}")
     filename = request.filename
     
     if filename not in processed_documents:
@@ -187,20 +215,31 @@ async def summarize_paper(request: SummarizeRequest):
         raise HTTPException(status_code=404, detail="Processed data not found for this file")
         
     document_chunks = processed_documents[filename]
+    doc_info = document_sections.get(filename, {})
     
     if not document_chunks:
         logger.warning(f"No chunks found for file: {filename}")
         raise HTTPException(status_code=400, detail="No content available for summarization")
     
     try:
+        # Get sections if available
+        sections = doc_info.get('sections', {})
+        
+        # Use LLM service for audience-specific summary
         chunks_text = [doc.page_content for doc in document_chunks]
-        summary_result = await rage_engine.summarize_paper(chunks_text)
+        full_text = '\n'.join(chunks_text)
+        
+        summary_result = await llm_service.generate_summary(
+            text=full_text,
+            audience=request.audience_type,
+            sections=sections
+        )
         
         if summary_result.get("status") == "error":
             logger.error(f'Summarization failed for {filename}: {summary_result.get("error")}')
             raise HTTPException(status_code=500, detail=f"Summarization failed: {summary_result.get('error')}")
 
-        return {"message": summary_result.get("summary", "Summarization failed")}
+        return {"message": summary_result.get("summary", "Summarization failed"), "audience": request.audience_type}
         
     except Exception as e:
         logger.error(f"Error summarizing {filename}: {e}")
@@ -366,6 +405,178 @@ async def get_sentence_explanation(request: ExplanationRequest):
     except Exception as e:
         logger.error(f"Error getting sentence explanation: {e}")
         raise HTTPException(status_code=500, detail=f"Error getting sentence explanation: {e}")
+
+@app.post("/query-doc")
+async def query_document(request: QueryDocRequest):
+    """
+    Query a specific document with citations to source sections
+    """
+    logger.info(f"Query document request: {request.question} for {request.document_id}")
+    
+    if request.document_id not in processed_documents:
+        raise HTTPException(status_code=404, detail="Document not found")
+    
+    try:
+        # Get relevant chunks from the specific document
+        doc_chunks = processed_documents[request.document_id]
+        
+        # Use RAG engine to find relevant chunks
+        query_embedding = await rage_engine.embeddings.aembed_query(request.question)
+        
+        # Calculate similarities and get top chunks
+        similarities = []
+        for doc in doc_chunks:
+            chunk_embedding = await rage_engine.embeddings.aembed_query(doc.page_content)
+            similarity = cosine_similarity(
+                np.array(query_embedding).reshape(1, -1),
+                np.array(chunk_embedding).reshape(1, -1)
+            )[0][0]
+            similarities.append({
+                "content": doc.page_content,
+                "metadata": doc.metadata,
+                "similarity": float(similarity)
+            })
+        
+        # Get top 5 most relevant chunks
+        similarities.sort(key=lambda x: x["similarity"], reverse=True)
+        relevant_chunks = similarities[:5]
+        
+        # Generate answer with citations
+        answer_result = await llm_service.answer_with_citations(
+            question=request.question,
+            relevant_chunks=relevant_chunks
+        )
+        
+        return {
+            "answer": answer_result.get("answer", ""),
+            "citations": answer_result.get("citations", []),
+            "document_id": request.document_id
+        }
+        
+    except Exception as e:
+        logger.error(f"Error querying document: {e}")
+        raise HTTPException(status_code=500, detail=f"Error querying document: {str(e)}")
+
+@app.post("/explain-text")
+async def explain_highlighted_text(request: ExplainTextRequest):
+    """
+    Explain highlighted text based on user question
+    """
+    logger.info(f"Explain text request for {request.filename}")
+    
+    if request.filename not in processed_documents:
+        raise HTTPException(status_code=404, detail="Document not found")
+    
+    try:
+        result = await llm_service.explain_text(
+            selected_text=request.selected_text,
+            context=request.context,
+            user_question=request.question,
+            audience=request.audience_type
+        )
+        
+        return result
+        
+    except Exception as e:
+        logger.error(f"Error explaining text: {e}")
+        raise HTTPException(status_code=500, detail=f"Error explaining text: {str(e)}")
+
+@app.post("/synthesize-topic")
+async def synthesize_topic(request: SynthesizeRequest):
+    """
+    Synthesize findings across multiple papers
+    """
+    logger.info(f"Synthesize request for {len(request.filenames)} files")
+    
+    papers_data = []
+    for filename in request.filenames:
+        if filename in processed_documents and filename in document_sections:
+            doc_info = document_sections[filename]
+            
+            # Extract key info from each paper
+            paper_data = {
+                "title": doc_info.get("metadata", {}).get("title", filename),
+                "year": doc_info.get("metadata", {}).get("creation_date", "Unknown"),
+                "topics": doc_info.get("topics", []),
+                "sections": doc_info.get("sections", {})
+            }
+            
+            # Extract findings and methods from sections
+            sections = doc_info.get("sections", {})
+            for section_name, section_content in sections.items():
+                if "finding" in section_name.lower() or "result" in section_name.lower():
+                    paper_data["findings"] = section_content[:1000]
+                elif "method" in section_name.lower():
+                    paper_data["methods"] = section_content[:1000]
+            
+            papers_data.append(paper_data)
+    
+    if not papers_data:
+        raise HTTPException(status_code=400, detail="No valid papers found for synthesis")
+    
+    try:
+        synthesis_result = await llm_service.synthesize_papers(
+            papers_data=papers_data,
+            synthesis_type=request.synthesis_type
+        )
+        
+        return synthesis_result
+        
+    except Exception as e:
+        logger.error(f"Error synthesizing papers: {e}")
+        raise HTTPException(status_code=500, detail=f"Error synthesizing papers: {str(e)}")
+
+@app.get("/document-info/{filename}")
+async def get_document_info(filename: str):
+    """
+    Get detailed information about a processed document
+    """
+    if filename not in document_sections:
+        raise HTTPException(status_code=404, detail="Document information not found")
+    
+    doc_info = document_sections[filename]
+    
+    return {
+        "filename": filename,
+        "metadata": doc_info.get("metadata", {}),
+        "sections": list(doc_info.get("sections", {}).keys()),
+        "topics": doc_info.get("topics", []),
+        "total_chunks": doc_info.get("total_chunks", 0),
+        "chunking_method": doc_info.get("chunking_method", "unknown")
+    }
+
+@app.get("/related-documents/{filename}")
+async def get_related_documents(filename: str):
+    """
+    Find related documents based on topic similarity
+    """
+    if filename not in document_sections:
+        raise HTTPException(status_code=404, detail="Document not found")
+    
+    target_topics = set(document_sections[filename].get("topics", []))
+    
+    if not target_topics:
+        return {"related": []}
+    
+    related = []
+    for other_filename, other_info in document_sections.items():
+        if other_filename != filename:
+            other_topics = set(other_info.get("topics", []))
+            
+            # Calculate topic overlap
+            overlap = len(target_topics.intersection(other_topics))
+            if overlap > 0:
+                related.append({
+                    "filename": other_filename,
+                    "title": other_info.get("metadata", {}).get("title", other_filename),
+                    "common_topics": list(target_topics.intersection(other_topics)),
+                    "similarity_score": overlap / len(target_topics.union(other_topics))
+                })
+    
+    # Sort by similarity score
+    related.sort(key=lambda x: x["similarity_score"], reverse=True)
+    
+    return {"related": related[:5]}  # Return top 5 related documents
 
 if __name__ == "__main__":
     import uvicorn

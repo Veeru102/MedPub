@@ -1,4 +1,8 @@
 import React, { useState, useCallback, useMemo } from "react";
+import PDFViewer from './components/PDFViewer';
+import AudienceSelector from './components/AudienceSelector';
+import type { AudienceType } from './components/AudienceSelector';
+import HighlightableText from './components/HighlightableText';
 
 // Placeholder component for the PDF viewer area - Keep for future use
 // @ts-ignore
@@ -185,6 +189,7 @@ const SummaryDisplay: React.FC<{ summary: string | null, filename: string }> = (
   const [selectedSentence, setSelectedSentence] = useState<string | null>(null);
   const [explanation, setExplanation] = useState<any>(null);
   const [loadingExplanation, setLoadingExplanation] = useState(false);
+  const [showExplanationResult, setShowExplanationResult] = useState(false);
 
   // Define the specific headings to format
   const headingsToFormat = [
@@ -195,6 +200,38 @@ const SummaryDisplay: React.FC<{ summary: string | null, filename: string }> = (
       "Key Objectives:",
       "Suggested Related Papers:"
   ];
+
+  const handleTextHighlight = async (selectedText: string, context: string) => {
+    const question = prompt("What would you like to know about this text?");
+    if (!question) return;
+
+    setSelectedSentence(selectedText);
+    setLoadingExplanation(true);
+    setShowExplanationResult(true);
+    
+    try {
+      const response = await fetch(`${BACKEND_URL}/explain-text`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          filename, 
+          selected_text: selectedText,
+          context,
+          question,
+          audience_type: 'patient' // Default to patient for explanations
+        })
+      });
+      
+      if (!response.ok) throw new Error('Failed to fetch explanation');
+      const data = await response.json();
+      setExplanation(data);
+    } catch (error) {
+      console.error('Error fetching explanation:', error);
+      setExplanation({ explanation: 'Failed to get explanation. Please try again.' });
+    } finally {
+      setLoadingExplanation(false);
+    }
+  };
 
   const handleSentenceClick = async (sentence: string) => {
     if (selectedSentence === sentence) {
@@ -311,121 +348,99 @@ const SummaryDisplay: React.FC<{ summary: string | null, filename: string }> = (
       
        {!isCollapsed && (
            <div className="text-gray-700">
-             {summarySections.map((section, index) => (
-               <div key={index} className="mb-4">
-                 {section.title && (
-                   <h4 className={`${headingsToFormat.includes(section.title) ? 'text-xl font-bold text-blue-800' : 'text-lg font-semibold'} mb-2`}>{section.title}</h4>
-                 )}
-                 {section.content.split('\n').map((paragraph, pIdx) => (
-                   <p key={pIdx} className="mb-2 last:mb-0">
-                     {paragraph.split(/[.!?]+/).map((sentence, sIdx) => {
-                       const trimmedSentence = sentence.trim();
-                       if (!trimmedSentence) return null;
-                       
-                       return (
-                         <span
-                           key={sIdx}
-                           onClick={() => handleSentenceClick(trimmedSentence)}
-                           className={`cursor-pointer hover:bg-yellow-100 px-1 rounded ${
-                             selectedSentence === trimmedSentence ? 'bg-yellow-200' : ''
-                           }`}
-                         >
-                           {trimmedSentence}
-                           {sIdx < paragraph.split(/[.!?]+/).length - 2 ? '. ' : ''}
-                         </span>
-                       );
-                     })}
-                   </p>
-                 ))}
-               </div>
-             ))}
+             <HighlightableText 
+               text={summary} 
+               onHighlight={handleTextHighlight}
+               className="leading-relaxed"
+             />
            </div>
        )}
 
-        {/* Explanation Panel */}
-        {selectedSentence && (
-          <div className="mt-4 p-4 bg-gray-50 rounded-lg border border-gray-200">
-            <h5 className="font-semibold text-gray-800 mb-2">Source Evidence</h5>
-            {loadingExplanation ? (
-              <div className="flex items-center justify-center py-4">
-                <svg className="animate-spin h-5 w-5 text-blue-600 mr-2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l2-2.647z"></path>
-                </svg>
-                <span>Loading explanation...</span>
-              </div>
-            ) : explanation ? (
-              <div>
-                <div className="mb-2 text-sm text-gray-600">
-                  Confidence: {(explanation.confidence * 100).toFixed(1)}%
-                </div>
-                {explanation.source_chunks.map((chunk: any, idx: number) => (
-                  <div key={idx} className="mb-3 p-3 bg-white rounded border border-gray-200">
-                    <div className="text-sm text-gray-600 mb-1">
-                      Similarity: {(chunk.similarity * 100).toFixed(1)}%
-                    </div>
-                    <p className="text-gray-800">{chunk.content}</p>
-                    {chunk.metadata.page && (
-                      <div className="text-xs text-gray-500 mt-1">
-                        Page {chunk.metadata.page}
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="text-gray-600 italic">No explanation available</div>
-            )}
+      {/* Explanation Result */}
+      {showExplanationResult && explanation && (
+        <div className="mt-4 p-4 bg-blue-50 rounded-lg border border-blue-200">
+          <div className="flex justify-between items-start mb-2">
+            <h4 className="text-sm font-semibold text-blue-800">Explanation</h4>
+            <button
+              onClick={() => {
+                setShowExplanationResult(false);
+                setExplanation(null);
+              }}
+              className="text-blue-600 hover:text-blue-800 text-sm"
+            >
+              Close
+            </button>
           </div>
-        )}
-
-        <button 
+          {loadingExplanation ? (
+            <div className="text-sm text-blue-700">Loading explanation...</div>
+          ) : (
+            <>
+              <p className="text-sm text-gray-700 mb-2">
+                <span className="font-medium">Selected:</span> "{selectedSentence?.substring(0, 100)}..."
+              </p>
+              <div className="text-sm text-gray-800">
+                {explanation.explanation}
+              </div>
+            </>
+          )}
+        </div>
+      )}
+      
+       {/* Action buttons */}
+       <div className="mt-4 flex justify-end">
+           <button 
            onClick={handleCopyToClipboard} 
            className="mt-4 px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors duration-200 text-sm"
         >
            Copy Summary
         </button>
+       </div>
     </div>
   );
 };
 
 // Helper component for the Chat interface - Now in a card
 const Chat: React.FC<{ files: string[] }> = ({ files }) => {
+  const [messages, setMessages] = useState<{ sender: "user" | "bot", text: string, sources?: any[] }[]>([]);
   const [question, setQuestion] = useState("");
-  const [messages, setMessages] = useState<{ text: string; sender: "user" | "bot"; sources?: Array<{ content: string; metadata: any }> }[]>([]);
   const [loading, setLoading] = useState(false);
   const [isCollapsed, setIsCollapsed] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!question.trim() || files.length === 0) {
-      // alert("Please upload a document first."); // Use a better notification
-      return;
-    }
+    if (!question.trim() || files.length === 0) return;
 
-    setLoading(true);
-    setMessages((prev) => [...prev, { text: question, sender: "user" }]);
+    const userMessage = { sender: "user" as const, text: question };
+    setMessages(prev => [...prev, userMessage]);
     setQuestion("");
+    setLoading(true);
 
     try {
-      const res = await fetch(`${BACKEND_URL}/query`, {
+      // Use query-doc for single document or query for multiple
+      const endpoint = files.length === 1 ? '/query-doc' : '/query';
+      const body = files.length === 1 
+        ? { question, document_id: files[0] }
+        : { query: question, filenames: files };
+
+      const res = await fetch(`${BACKEND_URL}${endpoint}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query: question, filenames: files }),
+        body: JSON.stringify(body),
       });
+
       if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
       const data = await res.json();
-      setMessages((prev) => [
-        ...prev,
-        {
-          text: data.message,
-          sender: "bot",
-          sources: data.sources // Store the source documents
-        }
-      ]);
+      
+      const botMessage = { 
+        sender: "bot" as const, 
+        text: data.answer || data.message, 
+        sources: data.citations || data.sources 
+      };
+      setMessages(prev => [...prev, botMessage]);
     } catch (err) {
-      console.error("Chat query error:", err);
-      setMessages((prev) => [...prev, { text: `Failed to get an answer: ${err}`, sender: "bot" }]);
+      console.error("Chat error:", err);
+      const errorMessage = { sender: "bot" as const, text: `Error: ${err}. Please try again.` };
+      setMessages(prev => [...prev, errorMessage]);
     } finally {
       setLoading(false);
     }
@@ -472,8 +487,21 @@ const Chat: React.FC<{ files: string[] }> = ({ files }) => {
                    {/* Suggestion: Add hover effects or tooltips for longer messages */}
                    {msg.text}
                    {msg.sender === "bot" && msg.sources && msg.sources.length > 0 && (
-                     <div className="mt-2 text-xs text-gray-600 italic">
-                       Sources: {msg.sources.map(source => source.metadata.filename || "Unknown").join(", ")}
+                     <div className="mt-3 pt-3 border-t border-gray-300">
+                       <div className="text-xs font-medium mb-2">Sources:</div>
+                       {msg.sources.map((source: any, idx: number) => (
+                         <div key={idx} className="text-xs bg-white/10 rounded p-2 mb-1">
+                           <span className="font-medium">[{source.index || idx + 1}]</span>
+                           {source.chunk ? (
+                             <>
+                               <span className="text-gray-300"> Section: {source.chunk.metadata?.section || 'Unknown'}</span>
+                               <div className="mt-1 text-gray-400">{source.chunk.content.substring(0, 100)}...</div>
+                             </>
+                           ) : (
+                             <span className="text-gray-300"> {source.metadata?.filename || source.content?.substring(0, 100) || 'Unknown source'}</span>
+                           )}
+                         </div>
+                       ))}
                      </div>
                    )}
                  </div>
@@ -516,10 +544,14 @@ const BACKEND_URL = "https://medscope.onrender.com";
 
 const App: React.FC = () => {
   const [uploadedFiles, setUploadedFiles] = useState<string[]>([]);
-  const [uploading, setUploading] = useState(false);
   const [summaries, setSummaries] = useState<Record<string, string>>({});
-  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [selectedFiles, setSelectedFiles] = useState<string[]>([]);
+  const [uploading, setUploading] = useState(false);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false); // State for sidebar collapse
+  const [selectedAudience, setSelectedAudience] = useState<AudienceType>('clinician');
+  const [showPdfViewer, setShowPdfViewer] = useState(false);
+  const [relatedDocuments, setRelatedDocuments] = useState<any[]>([]);
+  const [promptHistory, setPromptHistory] = useState<{prompt: string, response: string, timestamp: Date}[]>([]);
 
   const handleUpload = async (file: File) => {
     setUploading(true);
@@ -536,11 +568,26 @@ const App: React.FC = () => {
       // Clear summary if file is re-uploaded or new file is uploaded
       setSummaries(prev => { delete prev[data.filename]; return { ...prev }; });
       setSelectedFiles([data.filename]); // Select the newly uploaded file
+      
+      // Fetch related documents
+      fetchRelatedDocuments(data.filename);
     } catch (err) {
       console.error("Upload error:", err);
       alert(`Failed to upload PDF: ${err}`); // Suggestion: Use a better notification system
     } finally {
       setUploading(false);
+    }
+  };
+
+  const fetchRelatedDocuments = async (filename: string) => {
+    try {
+      const response = await fetch(`${BACKEND_URL}/related-documents/${filename}`);
+      if (response.ok) {
+        const data = await response.json();
+        setRelatedDocuments(data.related || []);
+      }
+    } catch (error) {
+      console.error('Error fetching related documents:', error);
     }
   };
 
@@ -554,11 +601,21 @@ const App: React.FC = () => {
       const res = await fetch(`${BACKEND_URL}/summarize`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ filename }),
+        body: JSON.stringify({ 
+          filename,
+          audience_type: selectedAudience 
+        }),
       });
       if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
       const data = await res.json();
       setSummaries((prev) => ({ ...prev, [filename]: data.message }));
+      
+      // Add to prompt history
+      setPromptHistory(prev => [...prev, {
+        prompt: `Summarize ${filename} for ${selectedAudience}`,
+        response: data.message,
+        timestamp: new Date()
+      }]);
     } catch (err) {
       console.error("Summarization error:", err);
       setSummaries(prev => ({ ...prev, [filename]: `Summarization failed: ${err}` })); // Keep error message in state
@@ -640,10 +697,53 @@ const App: React.FC = () => {
            {/* Upload component always visible */}
            <PDFUpload onUpload={handleUpload} uploading={uploading} />
               
+           {/* Audience Selector */}
+           {selectedFiles.length > 0 && (
+             <AudienceSelector
+               selectedAudience={selectedAudience}
+               onAudienceChange={setSelectedAudience}
+               disabled={Object.values(summaries).some(s => s === "Summarizing...")}
+             />
+           )}
+           
            {/* Container for Summary and Chat, or the Welcome Message */}
            {/* This container needs to take up the remaining space */} 
            {selectedFiles.length > 0 ? (
              <div className="flex-1 flex flex-col gap-8">
+                {/* Add PDF Viewer Toggle */}
+                {selectedFiles.length === 1 && (
+                  <div className="flex justify-between items-center">
+                    <button
+                      onClick={() => setShowPdfViewer(!showPdfViewer)}
+                      className="px-4 py-2 bg-gray-200 hover:bg-gray-300 rounded-md transition-colors"
+                    >
+                      {showPdfViewer ? 'Hide PDF Viewer' : 'Show PDF Viewer'}
+                    </button>
+                    
+                    {/* Related Documents */}
+                    {relatedDocuments.length > 0 && (
+                      <div className="text-sm text-gray-600">
+                        <span className="font-medium">Related:</span>
+                        {relatedDocuments.slice(0, 3).map((doc, idx) => (
+                          <span key={idx} className="ml-2 text-blue-600">
+                            {doc.title || doc.filename}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* PDF Viewer */}
+                {showPdfViewer && selectedFiles.length === 1 && (
+                  <div className="h-96 border border-gray-300 rounded-lg overflow-hidden">
+                    <PDFViewer
+                      filename={selectedFiles[0]}
+                      backendUrl={BACKEND_URL}
+                    />
+                  </div>
+                )}
+
                 {/* Display summary only if ONE file is selected and summarized */}
                 {selectedFiles.length === 1 && summaries[selectedFiles[0]] && summaries[selectedFiles[0]] !== "Summarizing..." && (
                    <SummaryDisplay 
