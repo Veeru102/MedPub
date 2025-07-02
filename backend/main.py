@@ -25,9 +25,15 @@ logger = logging.getLogger(__name__)
 load_dotenv()
 
 # Verify OpenAI API key is set
-if not os.getenv("OPENAI_API_KEY"):
+api_key = os.getenv("OPENAI_API_KEY")
+if not api_key:
     logger.error("OPENAI_API_KEY environment variable is not set")
+    logger.error("Please set the OPENAI_API_KEY environment variable in your Render dashboard")
+    logger.error("Go to: Dashboard > Service > Environment and add OPENAI_API_KEY")
     raise ValueError("OPENAI_API_KEY environment variable is not set")
+else:
+    logger.info(f"OpenAI API Key loaded successfully (starts with: {api_key[:10]}...)")
+    logger.info(f"API Key length: {len(api_key)} characters")
 
 app = FastAPI(title="MedCopilot API")
 

@@ -6,4 +6,6 @@ services:
     startCommand: cd backend && uvicorn main:app --host 0.0.0.0 --port $PORT
     envVars:
       - key: PYTHONPATH
-        value: /opt/render/project/src/backend 
+        value: /opt/render/project/src/backend
+      - key: OPENAI_API_KEY
+        sync: false 
