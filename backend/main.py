@@ -47,7 +47,8 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 # Stores Langchain Document objects with chunks and metadata
 processed_documents: Dict[str, List[Document]] = {}
 doc_processor = DocumentProcessor()
-# Initialize RAGEngine globally to persist the vector store across requests
+
+# Initialize RAGEngine globally
 rage_engine = RAGEngine()
 
 # Define startup event to load the FAISS index
@@ -116,14 +117,14 @@ async def upload_pdf(file: UploadFile = File(...)):
         # Store processed documents
         processed_documents[filename] = lc_documents
         
-        # Update vector store
+        # Update vector store with rate limiting
         try:
             all_processed_documents = []
             for doc_list in processed_documents.values():
                 all_processed_documents.extend(doc_list)
             
             if all_processed_documents:
-                logger.info("Updating vector store...")
+                logger.info(f"Updating vector store with {len(all_processed_documents)} documents...")
                 rage_engine.create_vector_store_from_documents(all_processed_documents)
                 rage_engine.setup_qa_chain()
                 logger.info("Vector store updated successfully")
@@ -221,14 +222,14 @@ async def delete_file(request: DeleteRequest):
             del processed_documents[filename]
             logger.info(f"Removed {filename} from processed documents")
             
-        # Update vector store
+        # Update vector store after deletion with rate limiting
         try:
             all_processed_documents = []
             for doc_list in processed_documents.values():
                 all_processed_documents.extend(doc_list)
             
             if all_processed_documents:
-                logger.info("Updating vector store after file deletion...")
+                logger.info(f"Updating vector store after file deletion with {len(all_processed_documents)} documents...")
                 rage_engine.create_vector_store_from_documents(all_processed_documents)
                 rage_engine.setup_qa_chain()
                 logger.info("Vector store updated successfully")
