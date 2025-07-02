@@ -192,7 +192,7 @@ Paper content:
 """
 
             response = await self.openai_client.chat.completions.create(
-                model="gpt-4o",  
+                model="gpt-4",  
                 messages=[
                     {"role": "system", "content": "You are a medical research assistant specializing in paper analysis and summarization."},
                     {"role": "user", "content": prompt}
