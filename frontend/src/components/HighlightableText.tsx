@@ -10,6 +10,11 @@ interface HighlightableTextProps {
 
 type HighlightMode = 'source' | 'question';
 
+interface HighlightedRange {
+  text: string;
+  id: string;
+}
+
 const HighlightableText: React.FC<HighlightableTextProps> = ({ 
   text, 
   onHighlight, 
@@ -20,6 +25,7 @@ const HighlightableText: React.FC<HighlightableTextProps> = ({
   const [showQuestionModal, setShowQuestionModal] = useState(false);
   const [currentSelectedText, setCurrentSelectedText] = useState('');
   const [currentContext, setCurrentContext] = useState('');
+  const [highlightedRanges, setHighlightedRanges] = useState<HighlightedRange[]>([]);
   const textRef = useRef<HTMLDivElement>(null);
 
   const handleMouseUp = () => {
@@ -34,6 +40,18 @@ const HighlightableText: React.FC<HighlightableTextProps> = ({
       const contextEnd = Math.min(textContent.length, selectedIndex + selectedString.length + 100);
       const context = textContent.substring(contextStart, contextEnd);
       
+      // Add persistent highlight (simplified approach)
+      const newHighlight: HighlightedRange = {
+        text: selectedString,
+        id: Date.now().toString()
+      };
+      
+      // Avoid duplicate highlights
+      const isDuplicate = highlightedRanges.some(highlight => highlight.text === selectedString);
+      if (!isDuplicate) {
+        setHighlightedRanges(prev => [...prev, newHighlight]);
+      }
+      
       // Handle different modes
       if (highlightMode === 'source') {
         handleSourceEvidence(selectedString, context);
@@ -44,7 +62,7 @@ const HighlightableText: React.FC<HighlightableTextProps> = ({
         setShowQuestionModal(true);
       }
       
-      // Clear selection
+      // Clear browser selection but keep our highlight
       window.getSelection()?.removeAllRanges();
     }
   };
@@ -69,7 +87,7 @@ const HighlightableText: React.FC<HighlightableTextProps> = ({
     setCurrentContext('');
   };
 
-  // Enhanced text formatting function that properly handles markdown
+  // Enhanced text formatting function that properly handles markdown and highlights
   const formatText = (text: string) => {
     if (!text) return '';
 
@@ -84,11 +102,11 @@ const HighlightableText: React.FC<HighlightableTextProps> = ({
         const content = trimmedLine.replace(/^#{1,3}\s/, '').trim();
         
         if (level === 1) {
-          return <h3 key={`header-${lineIndex}`} className="text-lg font-bold text-blue-800 mb-3 mt-4">{content}</h3>;
+          return <h3 key={`header-${lineIndex}`} className="text-lg font-bold text-blue-800 mb-3 mt-4">{renderTextWithHighlights(content)}</h3>;
         } else if (level === 2) {
-          return <h4 key={`header-${lineIndex}`} className="text-base font-semibold text-blue-700 mb-2 mt-3">{content}</h4>;
+          return <h4 key={`header-${lineIndex}`} className="text-base font-semibold text-blue-700 mb-2 mt-3">{renderTextWithHighlights(content)}</h4>;
         } else {
-          return <h5 key={`header-${lineIndex}`} className="text-sm font-medium text-blue-600 mb-2 mt-3">{content}</h5>;
+          return <h5 key={`header-${lineIndex}`} className="text-sm font-medium text-blue-600 mb-2 mt-3">{renderTextWithHighlights(content)}</h5>;
         }
       }
 
@@ -98,7 +116,7 @@ const HighlightableText: React.FC<HighlightableTextProps> = ({
         return (
           <div key={`bullet-${lineIndex}`} className="flex items-start mb-2 ml-4">
             <span className="text-blue-600 mr-3 mt-1 font-bold">•</span>
-            <span className="flex-1">{formatInlineText(content)}</span>
+            <span className="flex-1">{renderTextWithHighlights(formatInlineText(content))}</span>
           </div>
         );
       }
@@ -110,7 +128,7 @@ const HighlightableText: React.FC<HighlightableTextProps> = ({
         return (
           <div key={`numbered-${lineIndex}`} className="flex items-start mb-2 ml-4">
             <span className="text-blue-600 mr-3 mt-1 font-semibold min-w-[1.5rem]">{number}.</span>
-            <span className="flex-1">{formatInlineText(content)}</span>
+            <span className="flex-1">{renderTextWithHighlights(formatInlineText(content))}</span>
           </div>
         );
       }
@@ -118,10 +136,50 @@ const HighlightableText: React.FC<HighlightableTextProps> = ({
       // Regular paragraph
       return (
         <p key={`para-${lineIndex}`} className="mb-3 leading-relaxed">
-          {formatInlineText(trimmedLine)}
+          {renderTextWithHighlights(formatInlineText(trimmedLine))}
         </p>
       );
     });
+  };
+
+  // Render text with persistent highlights (simplified approach)
+  const renderTextWithHighlights = (content: React.ReactNode): React.ReactNode => {
+    if (typeof content !== 'string') {
+      return content;
+    }
+
+    if (highlightedRanges.length === 0) {
+      return content;
+    }
+
+    let result: React.ReactNode = content;
+    
+    // Process each highlight
+    highlightedRanges.forEach((highlight) => {
+      if (typeof result === 'string' && result.includes(highlight.text)) {
+        const parts = result.split(highlight.text);
+        const highlightedParts: React.ReactNode[] = [];
+        
+        parts.forEach((part, index) => {
+          highlightedParts.push(part);
+          if (index < parts.length - 1) {
+            highlightedParts.push(
+              <span 
+                key={`highlight-${highlight.id}-${index}`}
+                className="bg-yellow-200 px-1 rounded border border-yellow-300"
+                title="Previously selected text"
+              >
+                {highlight.text}
+              </span>
+            );
+          }
+        });
+        
+        result = highlightedParts;
+      }
+    });
+    
+    return result;
   };
 
   // Format inline text elements (bold, italic, etc.)
@@ -184,12 +242,23 @@ const HighlightableText: React.FC<HighlightableTextProps> = ({
           </button>
         </div>
         
-        <span className="text-sm text-gray-500">
-          {highlightMode === 'source' 
-            ? 'Highlight text to see source evidence' 
-            : 'Highlight text to ask questions'
-          }
-        </span>
+        <div className="flex items-center space-x-3">
+          {highlightedRanges.length > 0 && (
+            <button
+              onClick={() => setHighlightedRanges([])}
+              className="text-xs text-red-600 hover:text-red-800 px-2 py-1 rounded border border-red-300 hover:bg-red-50 transition-colors"
+              title="Clear all highlights"
+            >
+              Clear Highlights ({highlightedRanges.length})
+            </button>
+          )}
+          <span className="text-sm text-gray-500">
+            {highlightMode === 'source' 
+              ? 'Highlight text to see source evidence' 
+              : 'Highlight text to ask questions'
+            }
+          </span>
+        </div>
       </div>
 
       <div

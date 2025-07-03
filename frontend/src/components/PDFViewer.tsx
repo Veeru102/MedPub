@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Document, Page, pdfjs } from 'react-pdf';
 
-// Set up the worker for react-pdf
+// Set up the worker for react-pdf with better configuration
 pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.js`;
 
 interface PDFViewerProps {
@@ -26,6 +26,16 @@ const PDFViewer: React.FC<PDFViewerProps> = ({ filename, backendUrl }) => {
 
   // Construct the full PDF URL with proper path
   const pdfUrl = `${backendUrl}/uploads/${filename}`;
+
+  // PDF loading options with CORS handling
+  const pdfOptions = {
+    cMapUrl: `//unpkg.com/pdfjs-dist@${pdfjs.version}/cmaps/`,
+    cMapPacked: true,
+    standardFontDataUrl: `//unpkg.com/pdfjs-dist@${pdfjs.version}/standard_fonts/`,
+    httpHeaders: {
+      'Access-Control-Allow-Origin': '*',
+    },
+  };
 
   // Fetch document info including sections
   useEffect(() => {
@@ -211,6 +221,7 @@ const PDFViewer: React.FC<PDFViewerProps> = ({ filename, backendUrl }) => {
               onLoadError={onDocumentLoadError}
               loading={<div className="text-gray-500">Loading document...</div>}
               error={<div className="text-red-500">Failed to load PDF</div>}
+              options={pdfOptions}
             >
               <Page
                 pageNumber={currentPage}
@@ -218,6 +229,8 @@ const PDFViewer: React.FC<PDFViewerProps> = ({ filename, backendUrl }) => {
                 loading={<div className="text-gray-500">Loading page...</div>}
                 error={<div className="text-red-500">Failed to load page</div>}
                 className="shadow-lg"
+                renderTextLayer={true}
+                renderAnnotationLayer={false}
               />
             </Document>
           )}

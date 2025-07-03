@@ -91,7 +91,7 @@ const QuestionModal: React.FC<QuestionModalProps> = ({
               value={question}
               onChange={(e) => setQuestion(e.target.value)}
               placeholder="What would you like to know about this text?"
-              className="w-full px-4 py-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              className="w-full px-4 py-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900 placeholder-gray-400"
               autoFocus
             />
           </div>
