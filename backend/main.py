@@ -1,6 +1,7 @@
 from fastapi import FastAPI, WebSocket, UploadFile, File, HTTPException, Body
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
 from typing import List, Optional, Dict, Any
 import os
 from dotenv import load_dotenv
@@ -51,6 +52,9 @@ app.add_middleware(
 # Create uploads directory if it doesn't exist
 UPLOAD_DIR = "uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
+
+# Mount static files directory to serve PDFs
+app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
 
 # Stores Langchain Document objects with chunks and metadata
 processed_documents: Dict[str, List[Document]] = {}
@@ -105,6 +109,31 @@ class DeleteRequest(BaseModel):
 @app.get("/")
 async def root():
     return {"message": "Welcome to MedCopilot API"}
+
+@app.get("/files/{filename}")
+async def serve_pdf(filename: str):
+    """
+    Serve PDF files from the uploads directory
+    """
+    file_path = os.path.join(UPLOAD_DIR, filename)
+    
+    if not os.path.exists(file_path):
+        logger.error(f"File not found: {file_path}")
+        raise HTTPException(status_code=404, detail="File not found")
+    
+    if not filename.lower().endswith('.pdf'):
+        logger.error(f"Invalid file type requested: {filename}")
+        raise HTTPException(status_code=400, detail="Only PDF files are served")
+    
+    try:
+        return FileResponse(
+            path=file_path,
+            media_type='application/pdf',
+            filename=filename
+        )
+    except Exception as e:
+        logger.error(f"Error serving file {filename}: {e}")
+        raise HTTPException(status_code=500, detail=f"Error serving file: {str(e)}")
 
 @app.post("/upload")
 async def upload_pdf(file: UploadFile = File(...)):

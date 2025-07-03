@@ -26,8 +26,10 @@ const PDFViewer: React.FC<PDFViewerProps> = ({ filename, backendUrl }) => {
   const [error, setError] = useState<string | null>(null);
   const [documentLoaded, setDocumentLoaded] = useState(false);
 
-  // Construct the full PDF URL with proper path and cache buster
-  const pdfUrl = `${backendUrl}/uploads/${filename}?t=${Date.now()}`;
+  // Construct PDF URLs with fallback options
+  const primaryPdfUrl = `${backendUrl}/uploads/${filename}`;
+  const fallbackPdfUrl = `${backendUrl}/files/${filename}`;
+  const [currentPdfUrl, setCurrentPdfUrl] = useState(primaryPdfUrl);
 
   // PDF loading options with enhanced CORS and caching handling
   const pdfOptions = {
@@ -41,30 +43,50 @@ const PDFViewer: React.FC<PDFViewerProps> = ({ filename, backendUrl }) => {
     },
   };
 
-  // Pre-fetch PDF to validate URL and handle errors
+  // Pre-fetch PDF to validate URL and handle errors with fallback
   useEffect(() => {
-    const validatePdf = async () => {
+    const validatePdf = async (url: string, isFallback: boolean = false) => {
       try {
         setLoading(true);
         setError(null);
-        const response = await fetch(pdfUrl);
+        
+        console.log(`Attempting to load PDF from: ${url}`);
+        const response = await fetch(url);
+        
         if (!response.ok) {
-          throw new Error(`HTTP error! status: ${response.status}`);
+          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
         }
+        
+        const contentType = response.headers.get('content-type');
+        console.log(`Response content-type: ${contentType}`);
+        
         const blob = await response.blob();
-        if (!blob.type.includes('pdf')) {
-          throw new Error('Invalid PDF file format');
+        if (!blob.type.includes('pdf') && !contentType?.includes('pdf')) {
+          throw new Error(`Invalid content type: ${blob.type || contentType}`);
         }
+        
+        console.log(`PDF successfully validated from: ${url}`);
+        setCurrentPdfUrl(url);
         setDocumentLoaded(true);
+        
       } catch (err) {
-        console.error('PDF validation error:', err);
-        setError(err instanceof Error ? err.message : 'Failed to load PDF');
+        console.error(`PDF validation error for ${url}:`, err);
+        
+        if (!isFallback) {
+          console.log('Trying fallback URL...');
+          return validatePdf(fallbackPdfUrl, true);
+        }
+        
+        setError(err instanceof Error ? 
+          `Failed to load PDF: ${err.message}. Tried both /uploads and /files endpoints.` : 
+          'Failed to load PDF from both endpoints'
+        );
         setLoading(false);
       }
     };
 
-    validatePdf();
-  }, [pdfUrl]);
+    validatePdf(primaryPdfUrl);
+  }, [filename, backendUrl, primaryPdfUrl, fallbackPdfUrl]);
 
   // Fetch document info including sections
   useEffect(() => {
@@ -201,7 +223,7 @@ const PDFViewer: React.FC<PDFViewerProps> = ({ filename, backendUrl }) => {
               +
             </button>
             <a
-              href={pdfUrl}
+              href={currentPdfUrl}
               target="_blank"
               rel="noopener noreferrer"
               className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 text-sm"
@@ -223,25 +245,37 @@ const PDFViewer: React.FC<PDFViewerProps> = ({ filename, backendUrl }) => {
           
           {error && (
             <div className="flex items-center justify-center h-full">
-              <div className="text-red-500 text-center p-4 bg-red-50 rounded-lg border border-red-200">
+              <div className="text-red-500 text-center p-4 bg-red-50 rounded-lg border border-red-200 max-w-md">
                 <div className="text-xl mb-2">⚠️</div>
                 <div className="font-medium mb-2">Error loading PDF</div>
-                <div className="text-sm mb-4">{error}</div>
-                <div className="flex space-x-4 justify-center">
-                  <button 
-                    onClick={() => window.location.reload()} 
-                    className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 text-sm"
-                  >
-                    Reload Page
-                  </button>
-                  <a
-                    href={pdfUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="px-4 py-2 bg-gray-500 text-white rounded hover:bg-gray-600 text-sm"
-                  >
-                    Open in Browser
-                  </a>
+                <div className="text-sm mb-2 text-gray-700">
+                  <strong>File:</strong> {filename}
+                </div>
+                <div className="text-sm mb-2 text-gray-700">
+                  <strong>Current URL:</strong> {currentPdfUrl}
+                </div>
+                <div className="text-sm mb-4 text-red-600">{error}</div>
+                <div className="flex flex-col space-y-2">
+                  <div className="flex space-x-2 justify-center">
+                    <button 
+                      onClick={() => window.location.reload()} 
+                      className="px-3 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 text-sm"
+                    >
+                      Reload Page
+                    </button>
+                    <a
+                      href={currentPdfUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="px-3 py-2 bg-gray-500 text-white rounded hover:bg-gray-600 text-sm"
+                    >
+                      Open in Browser
+                    </a>
+                  </div>
+                  <div className="text-xs text-gray-600 mt-2">
+                    <div>Primary URL: {primaryPdfUrl}</div>
+                    <div>Fallback URL: {fallbackPdfUrl}</div>
+                  </div>
                 </div>
               </div>
             </div>
@@ -249,7 +283,7 @@ const PDFViewer: React.FC<PDFViewerProps> = ({ filename, backendUrl }) => {
           
           {documentLoaded && !error && (
             <Document
-              file={pdfUrl}
+              file={currentPdfUrl}
               onLoadSuccess={onDocumentLoadSuccess}
               onLoadError={onDocumentLoadError}
               loading={
