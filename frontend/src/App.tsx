@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useMemo } from "react";
+import React, { useState, useCallback } from "react";
 import PDFViewer from './components/PDFViewer';
 import AudienceSelector from './components/AudienceSelector';
 import type { AudienceType } from './components/AudienceSelector';
@@ -227,53 +227,7 @@ const SummaryDisplay: React.FC<{ summary: string | null, filename: string }> = (
 
 
 
-  // Advanced parsing for sections and stripping markdown
-  const parseAndFormatSummary = (text: string) => {
-      const sections: Array<{ title: string | null, content: string }> = [];
-      const lines = text.split('\n');
-      let currentTitle: string | null = null;
-      let currentContent: string[] = [];
 
-      const addSection = () => {
-          if (currentTitle !== null || currentContent.length > 0) {
-              sections.push({
-                  title: currentTitle ? currentTitle.replace(/^#+\s*/, '').replace(/\*\*/g, '') : null, // Remove markdown headings and **
-                  content: currentContent.join('\n').trim()//.replace(/^\*\*(.*?)\*\*:\s*/, '') // Remove bold markdown and leading colon/space from content start - REMOVED
-              });
-          }
-          currentTitle = null;
-          currentContent = [];
-      };
-
-      for (const line of lines) {
-          const trimmedLine = line.trim();
-
-          // Check for markdown headings (###, ##, #) or bold headings followed by colon
-          const boldHeadingMatch = trimmedLine.match(/^\*\*(.*?)\*\*:\s*/);
-          const markdownHeadingMatch = trimmedLine.match(/^#+\s(.*)/);
-
-          if (boldHeadingMatch) {
-              addSection(); // Add previous section
-              currentTitle = boldHeadingMatch[1]; // Capture text inside **
-              currentContent = [trimmedLine.substring(boldHeadingMatch[0].length).trim()]; // Start content after the bold heading
-          } else if (markdownHeadingMatch) {
-               addSection(); // Add previous section
-               currentTitle = markdownHeadingMatch[1].trim(); // Capture text after markdown #
-          } else if (trimmedLine) { // Non-empty line
-              currentContent.push(trimmedLine);
-          } else if (currentContent.length > 0) { // Empty line as a potential paragraph break within content
-              currentContent.push(''); // Preserve empty lines to some extent for spacing
-          }
-      }
-      addSection(); // Add the last section
-
-       // Fallback if no sections were parsed but there was text
-       if (sections.length === 0 && text.trim()) {
-           sections.push({ title: null, content: text.trim().replace(/\*\*/g, '') }); // Remove ** from fallback content too
-       }
-
-      return sections;
-  };
 
 
 
