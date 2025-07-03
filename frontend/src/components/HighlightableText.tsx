@@ -74,13 +74,12 @@ const HighlightableText: React.FC<HighlightableTextProps> = ({
     const selectedText = selection.toString().trim();
     if (!selectedText) return;
 
-    // Find the containing text node and its offset
-    const range = selection.getRangeAt(0);
-    const startContainer = range.startContainer;
-    const endContainer = range.endContainer;
-    
-    // Get paths to start and end containers
-    const containerPath = findTextNodePath(startContainer, textRef.current);
+         // Find the containing text node and its offset
+     const range = selection.getRangeAt(0);
+     const startContainer = range.startContainer;
+     
+     // Get path to start container
+     const containerPath = findTextNodePath(startContainer, textRef.current);
     
     // Create new highlight with precise positioning
     const newHighlight: HighlightedRange = {
