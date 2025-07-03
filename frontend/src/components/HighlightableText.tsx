@@ -168,9 +168,8 @@ const HighlightableText: React.FC<HighlightableTextProps> = ({
                 key={`highlight-${highlight.id}-${index}`}
                 className="px-1 rounded border"
                 style={{ 
-                  backgroundColor: '#e0f2ff', 
-                  borderColor: '#b3d9ff',
-                  color: '#1e40af'
+                  backgroundColor: '#e0f2ff',
+                  borderColor: '#b3d9ff'
                 }}
                 title="Previously selected text"
               >
@@ -260,7 +259,7 @@ const HighlightableText: React.FC<HighlightableTextProps> = ({
           <span className="text-sm text-gray-500">
             {highlightMode === 'source' 
               ? 'Highlight text to see source evidence' 
-              : 'Highlight text to ask AI questions'
+              : 'Highlight text to ask questions'
             }
           </span>
         </div>
