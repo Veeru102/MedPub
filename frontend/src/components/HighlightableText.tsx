@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import QuestionModal from './QuestionModal';
 
 interface HighlightableTextProps {
@@ -14,6 +14,9 @@ interface HighlightedRange {
   text: string;
   id: string;
   isNew?: boolean;
+  startOffset: number;
+  endOffset: number;
+  containerPath: number[]; // Path to container element for precise highlighting
 }
 
 const HighlightableText: React.FC<HighlightableTextProps> = ({ 
@@ -28,72 +31,132 @@ const HighlightableText: React.FC<HighlightableTextProps> = ({
   const [currentContext, setCurrentContext] = useState('');
   const [highlightedRanges, setHighlightedRanges] = useState<HighlightedRange[]>([]);
   const textRef = useRef<HTMLDivElement>(null);
+  const contentRef = useRef<string>(text);
+
+  // Update content ref when text changes
+  useEffect(() => {
+    contentRef.current = text;
+    // Clear highlights when text content changes
+    setHighlightedRanges([]);
+  }, [text]);
+
+  const findTextNodePath = (node: Node, root: Node): number[] => {
+    const path: number[] = [];
+    let current = node;
+    
+    while (current && current !== root) {
+      const parent = current.parentNode;
+      if (!parent) break;
+      
+             const index = Array.from(parent.childNodes).indexOf(current as ChildNode);
+      path.unshift(index);
+      current = parent;
+    }
+    
+    return path;
+  };
+
+  const getTextNodeAtPath = (path: number[], root: Node): Node | null => {
+    let current = root;
+    
+    for (const index of path) {
+      if (!current.childNodes[index]) return null;
+      current = current.childNodes[index];
+    }
+    
+    return current;
+  };
 
   const handleMouseUp = () => {
     const selection = window.getSelection();
-    if (selection && selection.toString().trim()) {
-      const selectedString = selection.toString();
+    if (!selection || !textRef.current) return;
+    
+    const selectedText = selection.toString().trim();
+    if (!selectedText) return;
+
+    // Find the containing text node and its offset
+    const range = selection.getRangeAt(0);
+    const startContainer = range.startContainer;
+    const endContainer = range.endContainer;
+    
+    // Get paths to start and end containers
+    const containerPath = findTextNodePath(startContainer, textRef.current);
+    
+    // Create new highlight with precise positioning
+    const newHighlight: HighlightedRange = {
+      text: selectedText,
+      id: Date.now().toString(),
+      isNew: true,
+      startOffset: range.startOffset,
+      endOffset: range.endOffset,
+      containerPath
+    };
+
+    // Get context (surrounding text)
+    const textContent = textRef.current.textContent || '';
+    const selectedIndex = textContent.indexOf(selectedText);
+    const contextStart = Math.max(0, selectedIndex - 100);
+    const contextEnd = Math.min(textContent.length, selectedIndex + selectedText.length + 100);
+    const context = textContent.substring(contextStart, contextEnd);
+
+    // Check for overlapping or duplicate highlights
+    const isDuplicate = highlightedRanges.some(highlight => {
+      const highlightNode = getTextNodeAtPath(highlight.containerPath, textRef.current!);
+      if (!highlightNode) return false;
+
+      const highlightRange = document.createRange();
+      highlightRange.setStart(highlightNode, highlight.startOffset);
+      highlightRange.setEnd(highlightNode, highlight.endOffset);
+
+      return range.compareBoundaryPoints(Range.START_TO_START, highlightRange) === 0 &&
+             range.compareBoundaryPoints(Range.END_TO_END, highlightRange) === 0;
+    });
+
+    if (!isDuplicate) {
+      setHighlightedRanges(prev => [...prev, newHighlight]);
       
-      // Get context (surrounding text)
-      const textContent = textRef.current?.textContent || '';
-      const selectedIndex = textContent.indexOf(selectedString);
-      const contextStart = Math.max(0, selectedIndex - 100);
-      const contextEnd = Math.min(textContent.length, selectedIndex + selectedString.length + 100);
-      const context = textContent.substring(contextStart, contextEnd);
-      
-      // Add persistent highlight with animation class
-      const newHighlight: HighlightedRange = {
-        text: selectedString,
-        id: Date.now().toString(),
-        isNew: true // Flag for animation
-      };
-      
-      // Avoid duplicate highlights
-      const isDuplicate = highlightedRanges.some(highlight => highlight.text === selectedString);
-      if (!isDuplicate) {
-        setHighlightedRanges(prev => [...prev, newHighlight]);
-        
-        // Remove isNew flag after animation
-        setTimeout(() => {
-          setHighlightedRanges(prev => 
-            prev.map(h => h.id === newHighlight.id ? { ...h, isNew: false } : h)
-          );
-        }, 1000);
-      }
-      
-      // Handle different modes
-      if (highlightMode === 'source') {
-        handleSourceEvidence(selectedString, context);
-      } else {
-        // Store selection and context for modal
-        setCurrentSelectedText(selectedString);
-        setCurrentContext(context);
-        setShowQuestionModal(true);
-      }
-      
-      // Clear browser selection but keep our highlight
-      window.getSelection()?.removeAllRanges();
+      // Remove isNew flag after animation
+      setTimeout(() => {
+        setHighlightedRanges(prev => 
+          prev.map(h => h.id === newHighlight.id ? { ...h, isNew: false } : h)
+        );
+      }, 1000);
     }
+
+    // Handle different modes
+    if (highlightMode === 'source') {
+      handleSourceEvidence(selectedText, context);
+    } else {
+      setCurrentSelectedText(selectedText);
+      setCurrentContext(context);
+      setShowQuestionModal(true);
+    }
+
+    // Clear browser selection but keep our highlight
+    selection.removeAllRanges();
   };
 
-  const handleSourceEvidence = (selectedString: string, context: string) => {
-    // Call source evidence callback
+  const handleSourceEvidence = (selectedText: string, context: string) => {
     if (onSourceEvidence) {
-      onSourceEvidence(selectedString, context);
+      onSourceEvidence(selectedText, context);
     }
   };
 
   const handleQuestionSubmit = (question: string) => {
-    // Call highlight callback with question context
     if (onHighlight) {
       onHighlight(currentSelectedText, currentContext, question);
     }
+    handleModalClose();
   };
 
   const handleModalClose = () => {
     setShowQuestionModal(false);
     setCurrentSelectedText('');
     setCurrentContext('');
+  };
+
+  const clearHighlights = () => {
+    setHighlightedRanges([]);
   };
 
   // Enhanced text formatting function that properly handles markdown and highlights
@@ -151,7 +214,7 @@ const HighlightableText: React.FC<HighlightableTextProps> = ({
     });
   };
 
-  // Render text with persistent highlights (simplified approach)
+  // Render text with persistent highlights
   const renderTextWithHighlights = (content: React.ReactNode): React.ReactNode => {
     if (typeof content !== 'string') {
       return content;
@@ -173,9 +236,9 @@ const HighlightableText: React.FC<HighlightableTextProps> = ({
           highlightedParts.push(part);
           if (index < parts.length - 1) {
             highlightedParts.push(
-              <span 
+              <mark 
                 key={`highlight-${highlight.id}-${index}`}
-                className={`px-1 rounded border transition-all duration-300 ${
+                className={`transition-all duration-300 rounded-sm px-0.5 ${
                   highlight.isNew ? 'animate-highlight-pulse' : ''
                 }`}
                 style={{ 
@@ -186,7 +249,7 @@ const HighlightableText: React.FC<HighlightableTextProps> = ({
                 title="Previously selected text"
               >
                 {highlight.text}
-              </span>
+              </mark>
             );
           }
         });
@@ -261,7 +324,7 @@ const HighlightableText: React.FC<HighlightableTextProps> = ({
         <div className="flex items-center space-x-3">
           {highlightedRanges.length > 0 && (
             <button
-              onClick={() => setHighlightedRanges([])}
+              onClick={clearHighlights}
               className="text-xs text-red-600 hover:text-red-800 px-2 py-1 rounded border border-red-300 hover:bg-red-50 transition-colors"
               title="Clear all highlights"
             >
