@@ -166,7 +166,12 @@ const HighlightableText: React.FC<HighlightableTextProps> = ({
             highlightedParts.push(
               <span 
                 key={`highlight-${highlight.id}-${index}`}
-                className="bg-yellow-200 px-1 rounded border border-yellow-300"
+                className="px-1 rounded border"
+                style={{ 
+                  backgroundColor: '#e0f2ff', 
+                  borderColor: '#b3d9ff',
+                  color: '#1e40af'
+                }}
                 title="Previously selected text"
               >
                 {highlight.text}
@@ -238,7 +243,7 @@ const HighlightableText: React.FC<HighlightableTextProps> = ({
                 : 'text-gray-600 hover:text-gray-800 hover:bg-gray-200'
             }`}
           >
-            Ask About Highlight
+            Ask AI Questions
           </button>
         </div>
         
@@ -255,7 +260,7 @@ const HighlightableText: React.FC<HighlightableTextProps> = ({
           <span className="text-sm text-gray-500">
             {highlightMode === 'source' 
               ? 'Highlight text to see source evidence' 
-              : 'Highlight text to ask questions'
+              : 'Highlight text to ask AI questions'
             }
           </span>
         </div>
