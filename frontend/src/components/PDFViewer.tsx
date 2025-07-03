@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Document, Page, pdfjs } from 'react-pdf';
+import type { PDFDocumentProxy } from 'pdfjs-dist';
 
 // Set up the worker for react-pdf with better configuration
 pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.js`;
@@ -23,19 +24,47 @@ const PDFViewer: React.FC<PDFViewerProps> = ({ filename, backendUrl }) => {
   const [scale, setScale] = useState(1.0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [documentLoaded, setDocumentLoaded] = useState(false);
 
-  // Construct the full PDF URL with proper path
-  const pdfUrl = `${backendUrl}/uploads/${filename}`;
+  // Construct the full PDF URL with proper path and cache buster
+  const pdfUrl = `${backendUrl}/uploads/${filename}?t=${Date.now()}`;
 
-  // PDF loading options with CORS handling
+  // PDF loading options with enhanced CORS and caching handling
   const pdfOptions = {
-    cMapUrl: `//unpkg.com/pdfjs-dist@${pdfjs.version}/cmaps/`,
+    cMapUrl: `https://unpkg.com/pdfjs-dist@${pdfjs.version}/cmaps/`,
     cMapPacked: true,
-    standardFontDataUrl: `//unpkg.com/pdfjs-dist@${pdfjs.version}/standard_fonts/`,
+    standardFontDataUrl: `https://unpkg.com/pdfjs-dist@${pdfjs.version}/standard_fonts/`,
     httpHeaders: {
-      'Access-Control-Allow-Origin': '*',
+      'Cache-Control': 'no-cache',
+      'Pragma': 'no-cache',
+      'Expires': '0',
     },
   };
+
+  // Pre-fetch PDF to validate URL and handle errors
+  useEffect(() => {
+    const validatePdf = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+        const response = await fetch(pdfUrl);
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        const blob = await response.blob();
+        if (!blob.type.includes('pdf')) {
+          throw new Error('Invalid PDF file format');
+        }
+        setDocumentLoaded(true);
+      } catch (err) {
+        console.error('PDF validation error:', err);
+        setError(err instanceof Error ? err.message : 'Failed to load PDF');
+        setLoading(false);
+      }
+    };
+
+    validatePdf();
+  }, [pdfUrl]);
 
   // Fetch document info including sections
   useEffect(() => {
@@ -62,41 +91,34 @@ const PDFViewer: React.FC<PDFViewerProps> = ({ filename, backendUrl }) => {
     fetchDocumentInfo();
   }, [filename, backendUrl]);
 
-  // Navigate to section
-  const navigateToSection = (sectionPage: number) => {
-    setCurrentPage(sectionPage);
-  };
-
-  const onDocumentLoadSuccess = ({ numPages }: { numPages: number }) => {
-    setTotalPages(numPages);
+  const onDocumentLoadSuccess = (pdf: PDFDocumentProxy) => {
+    setTotalPages(pdf.numPages);
     setLoading(false);
     setError(null);
   };
 
-  const onDocumentLoadError = (error: Error) => {
-    setError(`Failed to load PDF: ${error.message}`);
+  const onDocumentLoadError = (err: Error) => {
+    console.error('Error loading PDF:', err);
+    setError(`Failed to load PDF: ${err.message}`);
     setLoading(false);
   };
 
-  const goToPrevPage = () => {
-    setCurrentPage(prev => Math.max(1, prev - 1));
+  const onPageLoadSuccess = () => {
+    setLoading(false);
   };
 
-  const goToNextPage = () => {
-    setCurrentPage(prev => Math.min(totalPages, prev + 1));
+  const onPageLoadError = (err: Error) => {
+    console.error(`Error loading page ${currentPage}:`, err);
+    setError(`Failed to load page ${currentPage}: ${err.message}`);
   };
 
-  const zoomIn = () => {
-    setScale(prev => Math.min(2.0, prev + 0.2));
-  };
-
-  const zoomOut = () => {
-    setScale(prev => Math.max(0.5, prev - 0.2));
-  };
-
-  const resetZoom = () => {
-    setScale(1.0);
-  };
+  // Navigation functions
+  const navigateToSection = (sectionPage: number) => setCurrentPage(sectionPage);
+  const goToPrevPage = () => setCurrentPage(prev => Math.max(1, prev - 1));
+  const goToNextPage = () => setCurrentPage(prev => Math.min(totalPages, prev + 1));
+  const zoomIn = () => setScale(prev => Math.min(2.0, prev + 0.2));
+  const zoomOut = () => setScale(prev => Math.max(0.5, prev - 0.2));
+  const resetZoom = () => setScale(1.0);
 
   return (
     <div className="flex h-full bg-gray-100">
@@ -191,7 +213,7 @@ const PDFViewer: React.FC<PDFViewerProps> = ({ filename, backendUrl }) => {
 
         {/* PDF Display */}
         <div className="flex-1 overflow-auto flex justify-center py-4">
-          {loading && (
+          {loading && !error && (
             <div className="flex flex-col items-center justify-center h-full">
               <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mb-4"></div>
               <div className="text-gray-500 text-lg font-medium">Loading PDF...</div>
@@ -201,45 +223,73 @@ const PDFViewer: React.FC<PDFViewerProps> = ({ filename, backendUrl }) => {
           
           {error && (
             <div className="flex items-center justify-center h-full">
-              <div className="text-red-500 text-center">
-                <div className="mb-2">⚠️ Error loading PDF</div>
-                <div className="text-sm">{error}</div>
-                <a
-                  href={pdfUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="mt-4 inline-block px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
-                >
-                  Open in Browser
-                </a>
+              <div className="text-red-500 text-center p-4 bg-red-50 rounded-lg border border-red-200">
+                <div className="text-xl mb-2">⚠️</div>
+                <div className="font-medium mb-2">Error loading PDF</div>
+                <div className="text-sm mb-4">{error}</div>
+                <div className="flex space-x-4 justify-center">
+                  <button 
+                    onClick={() => window.location.reload()} 
+                    className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 text-sm"
+                  >
+                    Reload Page
+                  </button>
+                  <a
+                    href={pdfUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="px-4 py-2 bg-gray-500 text-white rounded hover:bg-gray-600 text-sm"
+                  >
+                    Open in Browser
+                  </a>
+                </div>
               </div>
             </div>
           )}
           
-          {!loading && !error && (
+          {documentLoaded && !error && (
             <Document
               file={pdfUrl}
               onLoadSuccess={onDocumentLoadSuccess}
               onLoadError={onDocumentLoadError}
               loading={
-                <div className="flex flex-col items-center justify-center h-full">
+                <div className="flex flex-col items-center justify-center p-8">
                   <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mb-2"></div>
                   <div className="text-gray-500">Loading document...</div>
                 </div>
               }
-              error={<div className="text-red-500">Failed to load PDF</div>}
+              error={
+                <div className="text-red-500 p-4 bg-red-50 rounded-lg border border-red-200">
+                  <div className="font-medium mb-2">Failed to load PDF</div>
+                  <div className="text-sm text-red-600">Please try refreshing the page or check your connection.</div>
+                </div>
+              }
               options={pdfOptions}
+              className="w-full h-full"
             >
               <Page
+                key={`page_${currentPage}`}
                 pageNumber={currentPage}
                 scale={scale}
                 loading={
                   <div className="flex flex-col items-center justify-center p-8">
                     <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-500 mb-2"></div>
-                    <div className="text-gray-500 text-sm">Loading page...</div>
+                    <div className="text-gray-500 text-sm">Loading page {currentPage}...</div>
                   </div>
                 }
-                error={<div className="text-red-500">Failed to load page</div>}
+                error={
+                  <div className="text-red-500 p-4">
+                    <div>Failed to load page {currentPage}</div>
+                    <button 
+                      onClick={() => setCurrentPage(currentPage)} 
+                      className="text-sm text-blue-500 hover:text-blue-600 mt-2"
+                    >
+                      Retry
+                    </button>
+                  </div>
+                }
+                onLoadSuccess={onPageLoadSuccess}
+                onLoadError={onPageLoadError}
                 className="shadow-lg"
                 renderTextLayer={true}
                 renderAnnotationLayer={false}

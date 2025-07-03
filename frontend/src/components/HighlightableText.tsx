@@ -13,6 +13,7 @@ type HighlightMode = 'source' | 'question';
 interface HighlightedRange {
   text: string;
   id: string;
+  isNew?: boolean;
 }
 
 const HighlightableText: React.FC<HighlightableTextProps> = ({ 
@@ -40,16 +41,24 @@ const HighlightableText: React.FC<HighlightableTextProps> = ({
       const contextEnd = Math.min(textContent.length, selectedIndex + selectedString.length + 100);
       const context = textContent.substring(contextStart, contextEnd);
       
-      // Add persistent highlight (simplified approach)
+      // Add persistent highlight with animation class
       const newHighlight: HighlightedRange = {
         text: selectedString,
-        id: Date.now().toString()
+        id: Date.now().toString(),
+        isNew: true // Flag for animation
       };
       
       // Avoid duplicate highlights
       const isDuplicate = highlightedRanges.some(highlight => highlight.text === selectedString);
       if (!isDuplicate) {
         setHighlightedRanges(prev => [...prev, newHighlight]);
+        
+        // Remove isNew flag after animation
+        setTimeout(() => {
+          setHighlightedRanges(prev => 
+            prev.map(h => h.id === newHighlight.id ? { ...h, isNew: false } : h)
+          );
+        }, 1000);
       }
       
       // Handle different modes
@@ -166,10 +175,13 @@ const HighlightableText: React.FC<HighlightableTextProps> = ({
             highlightedParts.push(
               <span 
                 key={`highlight-${highlight.id}-${index}`}
-                className="px-1 rounded border"
+                className={`px-1 rounded border transition-all duration-300 ${
+                  highlight.isNew ? 'animate-highlight-pulse' : ''
+                }`}
                 style={{ 
                   backgroundColor: '#e0f2ff',
-                  borderColor: '#b3d9ff'
+                  borderColor: '#b3d9ff',
+                  boxShadow: highlight.isNew ? '0 0 8px rgba(96, 165, 250, 0.5)' : 'none'
                 }}
                 title="Previously selected text"
               >
