@@ -12,6 +12,11 @@ dist
 dist-ssr
 *.local
 
+# PDF.js assets (copied from node_modules)
+public/pdf.worker.min.js
+public/cmaps/
+public/standard_fonts/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

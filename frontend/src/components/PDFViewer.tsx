@@ -2,8 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { Document, Page, pdfjs } from 'react-pdf';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 
-// Set up the worker for react-pdf with better configuration
-pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.js`;
+// Set up the worker for react-pdf with static file serving
+pdfjs.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.js';
 
 interface PDFViewerProps {
   filename: string;
@@ -31,11 +31,11 @@ const PDFViewer: React.FC<PDFViewerProps> = ({ filename, backendUrl }) => {
   const fallbackPdfUrl = `${backendUrl}/files/${filename}`;
   const [currentPdfUrl, setCurrentPdfUrl] = useState(primaryPdfUrl);
 
-  // PDF loading options with enhanced CORS and caching handling
+  // PDF loading options with local asset handling
   const pdfOptions = {
-    cMapUrl: `https://unpkg.com/pdfjs-dist@${pdfjs.version}/cmaps/`,
+    cMapUrl: '/cmaps/',
     cMapPacked: true,
-    standardFontDataUrl: `https://unpkg.com/pdfjs-dist@${pdfjs.version}/standard_fonts/`,
+    standardFontDataUrl: '/standard_fonts/',
     httpHeaders: {
       'Cache-Control': 'no-cache',
       'Pragma': 'no-cache',

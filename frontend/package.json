@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "build": "npm run copy-pdf-assets && tsc -b && vite build",
+    "copy-pdf-assets": "cp node_modules/pdfjs-dist/build/pdf.worker.min.mjs public/pdf.worker.min.js && cp -r node_modules/pdfjs-dist/cmaps public/ && cp -r node_modules/pdfjs-dist/standard_fonts public/",
     "lint": "eslint .",
     "preview": "vite preview"
   },
