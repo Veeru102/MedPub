@@ -188,18 +188,18 @@ const SummaryDisplay: React.FC<{ summary: string | null, filename: string }> = (
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [selectedSentence, setSelectedSentence] = useState<string | null>(null);
   const [explanation, setExplanation] = useState<any>(null);
+  const [sourceEvidence, setSourceEvidence] = useState<any>(null);
   const [loadingExplanation, setLoadingExplanation] = useState(false);
+  const [loadingSourceEvidence, setLoadingSourceEvidence] = useState(false);
   const [showExplanationResult, setShowExplanationResult] = useState(false);
+  const [showSourceEvidenceResult, setShowSourceEvidenceResult] = useState(false);
 
-
-
+  // Handle question-based highlighting (existing functionality)
   const handleTextHighlight = async (selectedText: string, context: string) => {
-    const question = prompt("What would you like to know about this text?");
-    if (!question) return;
-
     setSelectedSentence(selectedText);
     setLoadingExplanation(true);
     setShowExplanationResult(true);
+    setShowSourceEvidenceResult(false); // Hide source evidence when showing explanation
     
     try {
       const response = await fetch(`${BACKEND_URL}/explain-text`, {
@@ -209,7 +209,7 @@ const SummaryDisplay: React.FC<{ summary: string | null, filename: string }> = (
           filename, 
           selected_text: selectedText,
           context,
-          question,
+          question: "Please explain this text", // Use a default question since it's handled by native prompt
           audience_type: 'patient' // Default to patient for explanations
         })
       });
@@ -222,6 +222,38 @@ const SummaryDisplay: React.FC<{ summary: string | null, filename: string }> = (
       setExplanation({ explanation: 'Failed to get explanation. Please try again.' });
     } finally {
       setLoadingExplanation(false);
+    }
+  };
+
+  // Handle source evidence highlighting (new functionality)
+  const handleSourceEvidence = async (selectedText: string) => {
+    setSelectedSentence(selectedText);
+    setLoadingSourceEvidence(true);
+    setShowSourceEvidenceResult(true);
+    setShowExplanationResult(false); // Hide explanation when showing source evidence
+    
+    try {
+      const response = await fetch(`${BACKEND_URL}/explanation`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          filename, 
+          sentence: selectedText
+        })
+      });
+      
+      if (!response.ok) throw new Error('Failed to fetch source evidence');
+      const data = await response.json();
+      setSourceEvidence(data);
+    } catch (error) {
+      console.error('Error fetching source evidence:', error);
+      setSourceEvidence({ 
+        source_chunks: [], 
+        confidence: 0,
+        error: 'Failed to get source evidence. Please try again.' 
+      });
+    } finally {
+      setLoadingSourceEvidence(false);
     }
   };
 
@@ -272,16 +304,73 @@ const SummaryDisplay: React.FC<{ summary: string | null, filename: string }> = (
              <HighlightableText 
                text={summary} 
                onHighlight={handleTextHighlight}
+               onSourceEvidence={handleSourceEvidence}
                className="leading-relaxed"
              />
            </div>
        )}
 
+      {/* Source Evidence Result */}
+      {showSourceEvidenceResult && (
+        <div className="mt-4 p-4 bg-green-50 rounded-lg border border-green-200">
+          <div className="flex justify-between items-start mb-2">
+            <h4 className="text-sm font-semibold text-green-800">Source Evidence</h4>
+            <button
+              onClick={() => {
+                setShowSourceEvidenceResult(false);
+                setSourceEvidence(null);
+              }}
+              className="text-green-600 hover:text-green-800 text-sm"
+            >
+              Close
+            </button>
+          </div>
+          {loadingSourceEvidence ? (
+            <div className="text-sm text-green-700">Finding source evidence...</div>
+          ) : sourceEvidence?.error ? (
+            <div className="text-sm text-red-600">{sourceEvidence.error}</div>
+          ) : (
+            <>
+              <p className="text-sm text-gray-700 mb-3">
+                <span className="font-medium">Selected:</span> "{selectedSentence?.substring(0, 100)}..."
+              </p>
+              <div className="mb-3">
+                <span className="text-sm font-medium text-green-800">
+                  Confidence Score: {Math.round((sourceEvidence?.confidence || 0) * 100)}%
+                </span>
+              </div>
+              <div className="space-y-3">
+                {sourceEvidence?.source_chunks?.map((chunk: any, idx: number) => (
+                  <div key={idx} className="p-3 bg-white rounded border border-green-200">
+                    <div className="flex justify-between items-start mb-2">
+                      <span className="text-xs font-medium text-green-600">
+                        Source {idx + 1} (Similarity: {Math.round(chunk.similarity * 100)}%)
+                      </span>
+                      {chunk.metadata?.page && (
+                        <span className="text-xs text-gray-500">
+                          Page {chunk.metadata.page}
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-sm text-gray-800 leading-relaxed">
+                      {chunk.content.length > 300 
+                        ? `${chunk.content.substring(0, 300)}...` 
+                        : chunk.content
+                      }
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
       {/* Explanation Result */}
       {showExplanationResult && explanation && (
         <div className="mt-4 p-4 bg-blue-50 rounded-lg border border-blue-200">
           <div className="flex justify-between items-start mb-2">
-            <h4 className="text-sm font-semibold text-blue-800">Explanation</h4>
+            <h4 className="text-sm font-semibold text-blue-800">AI Explanation</h4>
             <button
               onClick={() => {
                 setShowExplanationResult(false);
