@@ -1,8 +1,9 @@
 import React, { useState, useRef } from 'react';
+import QuestionModal from './QuestionModal';
 
 interface HighlightableTextProps {
   text: string;
-  onHighlight?: (selectedText: string, context: string) => void;
+  onHighlight?: (selectedText: string, context: string, question: string) => void;
   onSourceEvidence?: (selectedText: string, context: string) => void;
   className?: string;
 }
@@ -16,6 +17,9 @@ const HighlightableText: React.FC<HighlightableTextProps> = ({
   className = ''
 }) => {
   const [highlightMode, setHighlightMode] = useState<HighlightMode>('source');
+  const [showQuestionModal, setShowQuestionModal] = useState(false);
+  const [currentSelectedText, setCurrentSelectedText] = useState('');
+  const [currentContext, setCurrentContext] = useState('');
   const textRef = useRef<HTMLDivElement>(null);
 
   const handleMouseUp = () => {
@@ -23,99 +27,134 @@ const HighlightableText: React.FC<HighlightableTextProps> = ({
     if (selection && selection.toString().trim()) {
       const selectedString = selection.toString();
       
+      // Get context (surrounding text)
+      const textContent = textRef.current?.textContent || '';
+      const selectedIndex = textContent.indexOf(selectedString);
+      const contextStart = Math.max(0, selectedIndex - 100);
+      const contextEnd = Math.min(textContent.length, selectedIndex + selectedString.length + 100);
+      const context = textContent.substring(contextStart, contextEnd);
+      
       // Handle different modes
       if (highlightMode === 'source') {
-        handleSourceEvidence(selectedString);
+        handleSourceEvidence(selectedString, context);
       } else {
-        handleAskQuestion(selectedString);
+        // Store selection and context for modal
+        setCurrentSelectedText(selectedString);
+        setCurrentContext(context);
+        setShowQuestionModal(true);
       }
+      
+      // Clear selection
+      window.getSelection()?.removeAllRanges();
     }
   };
 
-  const handleSourceEvidence = (selectedString: string) => {
-    // Get context (surrounding text)
-    const textContent = textRef.current?.textContent || '';
-    const selectedIndex = textContent.indexOf(selectedString);
-    const contextStart = Math.max(0, selectedIndex - 100);
-    const contextEnd = Math.min(textContent.length, selectedIndex + selectedString.length + 100);
-    const context = textContent.substring(contextStart, contextEnd);
-    
+  const handleSourceEvidence = (selectedString: string, context: string) => {
     // Call source evidence callback
     if (onSourceEvidence) {
       onSourceEvidence(selectedString, context);
     }
-    
-    // Clear selection
-    window.getSelection()?.removeAllRanges();
   };
 
-  const handleAskQuestion = (selectedString: string) => {
-    // Use native prompt for simplicity (as requested)
-    const question = prompt("What would you like to know about this text?");
-    if (!question) {
-      window.getSelection()?.removeAllRanges();
-      return;
-    }
-
-    // Get context (surrounding text)
-    const textContent = textRef.current?.textContent || '';
-    const selectedIndex = textContent.indexOf(selectedString);
-    const contextStart = Math.max(0, selectedIndex - 100);
-    const contextEnd = Math.min(textContent.length, selectedIndex + selectedString.length + 100);
-    const context = textContent.substring(contextStart, contextEnd);
-    
+  const handleQuestionSubmit = (question: string) => {
     // Call highlight callback with question context
     if (onHighlight) {
-      onHighlight(selectedString, context);
+      onHighlight(currentSelectedText, currentContext, question);
     }
-    
-    // Clear selection
-    window.getSelection()?.removeAllRanges();
   };
 
-  // Parse text and apply formatting
+  const handleModalClose = () => {
+    setShowQuestionModal(false);
+    setCurrentSelectedText('');
+    setCurrentContext('');
+  };
+
+  // Enhanced text formatting function that properly handles markdown
   const formatText = (text: string) => {
-    const lines = text.split('\n');
-    return lines.map((line, index) => {
-      // Check for bold markers
-      const boldPattern = /\*\*(.*?)\*\*/g;
-      const parts = [];
-      let lastIndex = 0;
-      let match;
+    if (!text) return '';
+
+    const lines = text.split('\n').filter(line => line.trim() !== '');
+    
+    return lines.map((line, lineIndex) => {
+      const trimmedLine = line.trim();
       
-      while ((match = boldPattern.exec(line)) !== null) {
-        // Add text before bold
-        if (match.index > lastIndex) {
-          parts.push(
-            <span key={`text-${index}-${lastIndex}`}>
-              {line.substring(lastIndex, match.index)}
-            </span>
-          );
+      // Handle headers (### ## #)
+      if (trimmedLine.match(/^#{1,3}\s/)) {
+        const level = trimmedLine.match(/^(#{1,3})/)?.[1].length || 3;
+        const content = trimmedLine.replace(/^#{1,3}\s/, '').trim();
+        
+        if (level === 1) {
+          return <h3 key={`header-${lineIndex}`} className="text-lg font-bold text-blue-800 mb-3 mt-4">{content}</h3>;
+        } else if (level === 2) {
+          return <h4 key={`header-${lineIndex}`} className="text-base font-semibold text-blue-700 mb-2 mt-3">{content}</h4>;
+        } else {
+          return <h5 key={`header-${lineIndex}`} className="text-sm font-medium text-blue-600 mb-2 mt-3">{content}</h5>;
         }
-        // Add bold text
-        parts.push(
-          <strong key={`bold-${index}-${match.index}`} className="font-bold text-blue-800">
-            {match[1]}
-          </strong>
-        );
-        lastIndex = match.index + match[0].length;
       }
-      
-      // Add remaining text
-      if (lastIndex < line.length) {
-        parts.push(
-          <span key={`text-${index}-${lastIndex}-end`}>
-            {line.substring(lastIndex)}
-          </span>
+
+      // Handle bullet points (- or * at start)
+      if (trimmedLine.match(/^\s*[\-\*]\s/)) {
+        const content = trimmedLine.replace(/^\s*[\-\*]\s/, '').trim();
+        return (
+          <div key={`bullet-${lineIndex}`} className="flex items-start mb-2 ml-4">
+            <span className="text-blue-600 mr-3 mt-1 font-bold">•</span>
+            <span className="flex-1">{formatInlineText(content)}</span>
+          </div>
         );
       }
-      
+
+      // Handle numbered lists (1. 2. etc.)
+      if (trimmedLine.match(/^\s*\d+\.\s/)) {
+        const number = trimmedLine.match(/^\s*(\d+)\./)?.[1] || '1';
+        const content = trimmedLine.replace(/^\s*\d+\.\s/, '').trim();
+        return (
+          <div key={`numbered-${lineIndex}`} className="flex items-start mb-2 ml-4">
+            <span className="text-blue-600 mr-3 mt-1 font-semibold min-w-[1.5rem]">{number}.</span>
+            <span className="flex-1">{formatInlineText(content)}</span>
+          </div>
+        );
+      }
+
+      // Regular paragraph
       return (
-        <div key={`line-${index}`} className="mb-2">
-          {parts.length > 0 ? parts : line}
-        </div>
+        <p key={`para-${lineIndex}`} className="mb-3 leading-relaxed">
+          {formatInlineText(trimmedLine)}
+        </p>
       );
     });
+  };
+
+  // Format inline text elements (bold, italic, etc.)
+  const formatInlineText = (text: string): React.ReactNode => {
+    const parts = [];
+    let currentIndex = 0;
+    
+    // Handle bold text (**text** or __text__)
+    const boldRegex = /(\*\*|__)(.*?)\1/g;
+    let match;
+    
+    while ((match = boldRegex.exec(text)) !== null) {
+      // Add text before bold
+      if (match.index > currentIndex) {
+        parts.push(text.substring(currentIndex, match.index));
+      }
+      
+      // Add bold text
+      parts.push(
+        <strong key={`bold-${match.index}`} className="font-semibold text-blue-800">
+          {match[2]}
+        </strong>
+      );
+      
+      currentIndex = match.index + match[0].length;
+    }
+    
+    // Add remaining text
+    if (currentIndex < text.length) {
+      parts.push(text.substring(currentIndex));
+    }
+    
+    return parts.length > 0 ? parts : text;
   };
 
   return (
@@ -164,6 +203,14 @@ const HighlightableText: React.FC<HighlightableTextProps> = ({
       >
         {formatText(text)}
       </div>
+
+      {/* Question Modal */}
+      <QuestionModal
+        isOpen={showQuestionModal}
+        selectedText={currentSelectedText}
+        onClose={handleModalClose}
+        onSubmit={handleQuestionSubmit}
+      />
     </div>
   );
 };

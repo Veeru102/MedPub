@@ -194,8 +194,8 @@ const SummaryDisplay: React.FC<{ summary: string | null, filename: string }> = (
   const [showExplanationResult, setShowExplanationResult] = useState(false);
   const [showSourceEvidenceResult, setShowSourceEvidenceResult] = useState(false);
 
-  // Handle question-based highlighting (existing functionality)
-  const handleTextHighlight = async (selectedText: string, context: string) => {
+  // Handle question-based highlighting (improved functionality)
+  const handleTextHighlight = async (selectedText: string, context: string, question: string) => {
     setSelectedSentence(selectedText);
     setLoadingExplanation(true);
     setShowExplanationResult(true);
@@ -209,17 +209,20 @@ const SummaryDisplay: React.FC<{ summary: string | null, filename: string }> = (
           filename, 
           selected_text: selectedText,
           context,
-          question: "Please explain this text", // Use a default question since it's handled by native prompt
+          question,
           audience_type: 'patient' // Default to patient for explanations
         })
       });
       
       if (!response.ok) throw new Error('Failed to fetch explanation');
       const data = await response.json();
-      setExplanation(data);
+      setExplanation({ ...data, userQuestion: question }); // Store the user's question
     } catch (error) {
       console.error('Error fetching explanation:', error);
-      setExplanation({ explanation: 'Failed to get explanation. Please try again.' });
+      setExplanation({ 
+        explanation: 'Failed to get explanation. Please try again.',
+        userQuestion: question 
+      });
     } finally {
       setLoadingExplanation(false);
     }
@@ -313,7 +316,7 @@ const SummaryDisplay: React.FC<{ summary: string | null, filename: string }> = (
       {/* Source Evidence Result */}
       {showSourceEvidenceResult && (
         <div className="mt-4 p-4 bg-green-50 rounded-lg border border-green-200">
-          <div className="flex justify-between items-start mb-2">
+          <div className="flex justify-between items-start mb-3">
             <h4 className="text-sm font-semibold text-green-800">Source Evidence</h4>
             <button
               onClick={() => {
@@ -331,21 +334,45 @@ const SummaryDisplay: React.FC<{ summary: string | null, filename: string }> = (
             <div className="text-sm text-red-600">{sourceEvidence.error}</div>
           ) : (
             <>
-              <p className="text-sm text-gray-700 mb-3">
-                <span className="font-medium">Selected:</span> "{selectedSentence?.substring(0, 100)}..."
-              </p>
-              <div className="mb-3">
-                <span className="text-sm font-medium text-green-800">
-                  Confidence Score: {Math.round((sourceEvidence?.confidence || 0) * 100)}%
-                </span>
+              {/* Selected Text Display */}
+              <div className="mb-3 p-2 bg-white rounded border border-green-200">
+                <div className="text-xs font-medium text-green-600 mb-1">Highlighted Text:</div>
+                <div className="text-sm text-gray-700 italic">
+                  "{selectedSentence && selectedSentence.length > 200 
+                    ? `${selectedSentence.substring(0, 200)}...` 
+                    : selectedSentence}"
+                </div>
               </div>
+              
+              {/* Confidence Score with Tooltip */}
+              <div className="mb-3 flex items-center gap-2">
+                <span className="text-sm font-medium text-green-800">
+                  Overall Confidence: {((sourceEvidence?.confidence || 0) * 100).toFixed(2)}%
+                </span>
+                <div className="group relative">
+                  <span className="text-xs text-gray-400 cursor-help">ⓘ</span>
+                  <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-3 py-2 bg-gray-800 text-white text-xs rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none w-64 z-10">
+                    Confidence based on average cosine similarity between highlighted text and top 3 most relevant PDF chunks
+                  </div>
+                </div>
+              </div>
+              
+              {/* Source Chunks */}
               <div className="space-y-3">
                 {sourceEvidence?.source_chunks?.map((chunk: any, idx: number) => (
                   <div key={idx} className="p-3 bg-white rounded border border-green-200">
                     <div className="flex justify-between items-start mb-2">
-                      <span className="text-xs font-medium text-green-600">
-                        Source {idx + 1} (Similarity: {Math.round(chunk.similarity * 100)}%)
-                      </span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-medium text-green-600">
+                          Source {idx + 1} (Similarity: {(chunk.similarity * 100).toFixed(2)}%)
+                        </span>
+                        <div className="group relative">
+                          <span className="text-xs text-gray-400 cursor-help">ⓘ</span>
+                          <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-3 py-2 bg-gray-800 text-white text-xs rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none w-48 z-10">
+                            Vector similarity between highlighted text and this PDF chunk
+                          </div>
+                        </div>
+                      </div>
                       {chunk.metadata?.page && (
                         <span className="text-xs text-gray-500">
                           Page {chunk.metadata.page}
@@ -353,8 +380,8 @@ const SummaryDisplay: React.FC<{ summary: string | null, filename: string }> = (
                       )}
                     </div>
                     <div className="text-sm text-gray-800 leading-relaxed">
-                      {chunk.content.length > 300 
-                        ? `${chunk.content.substring(0, 300)}...` 
+                      {chunk.content.length > 350 
+                        ? `${chunk.content.substring(0, 350)}...` 
                         : chunk.content
                       }
                     </div>
@@ -369,7 +396,7 @@ const SummaryDisplay: React.FC<{ summary: string | null, filename: string }> = (
       {/* Explanation Result */}
       {showExplanationResult && explanation && (
         <div className="mt-4 p-4 bg-blue-50 rounded-lg border border-blue-200">
-          <div className="flex justify-between items-start mb-2">
+          <div className="flex justify-between items-start mb-3">
             <h4 className="text-sm font-semibold text-blue-800">AI Explanation</h4>
             <button
               onClick={() => {
@@ -385,11 +412,30 @@ const SummaryDisplay: React.FC<{ summary: string | null, filename: string }> = (
             <div className="text-sm text-blue-700">Loading explanation...</div>
           ) : (
             <>
-              <p className="text-sm text-gray-700 mb-2">
-                <span className="font-medium">Selected:</span> "{selectedSentence?.substring(0, 100)}..."
-              </p>
-              <div className="text-sm text-gray-800">
-                {explanation.explanation}
+              {/* User's Question */}
+              {explanation.userQuestion && (
+                <div className="mb-3 p-2 bg-white rounded border border-blue-200">
+                  <div className="text-xs font-medium text-blue-600 mb-1">Your Question:</div>
+                  <div className="text-sm text-gray-800 italic">"{explanation.userQuestion}"</div>
+                </div>
+              )}
+              
+              {/* Selected Text */}
+              <div className="mb-3 p-2 bg-white rounded border border-blue-200">
+                <div className="text-xs font-medium text-blue-600 mb-1">Selected Text:</div>
+                <div className="text-sm text-gray-700 italic">
+                  "{selectedSentence && selectedSentence.length > 200 
+                    ? `${selectedSentence.substring(0, 200)}...` 
+                    : selectedSentence}"
+                </div>
+              </div>
+              
+              {/* AI Response */}
+              <div className="p-3 bg-white rounded border border-blue-200">
+                <div className="text-xs font-medium text-blue-600 mb-2">AI Response:</div>
+                <div className="text-sm text-gray-800 leading-relaxed">
+                  {explanation.explanation}
+                </div>
               </div>
             </>
           )}
@@ -415,6 +461,25 @@ const Chat: React.FC<{ files: string[] }> = ({ files }) => {
   const [question, setQuestion] = useState("");
   const [loading, setLoading] = useState(false);
   const [isCollapsed, setIsCollapsed] = useState(false);
+
+  // Format chat messages with proper text handling
+  const formatChatMessage = (text: string): React.ReactNode => {
+    if (!text) return '';
+    
+    // Split by paragraphs and format each
+    const paragraphs = text.split('\n').filter(p => p.trim() !== '');
+    
+    return paragraphs.map((paragraph, idx) => {
+      // Handle bold text
+      const formattedText = paragraph.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+      
+      return (
+        <p key={idx} className={`${idx > 0 ? 'mt-2' : ''} leading-relaxed`}>
+          <span dangerouslySetInnerHTML={{ __html: formattedText }} />
+        </p>
+      );
+    });
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -494,8 +559,9 @@ const Chat: React.FC<{ files: string[] }> = ({ files }) => {
                <div key={idx} className={`flex ${msg.sender === "user" ? "justify-end" : "justify-start"}`}>
                  {/* Suggestion: Use avatar/icon for sender */}
                  <div className={`inline-block p-4 rounded-xl max-w-sm break-words ${msg.sender === "user" ? "bg-blue-600 text-white rounded-br-none" : "bg-gray-200 text-gray-800 rounded-bl-none"}`}>
-                   {/* Suggestion: Add hover effects or tooltips for longer messages */}
-                   {msg.text}
+                   <div className="text-sm leading-relaxed">
+                     {formatChatMessage(msg.text)}
+                   </div>
                    {msg.sender === "bot" && msg.sources && msg.sources.length > 0 && (
                      <div className="mt-3 pt-3 border-t border-gray-300">
                        <div className="text-xs font-medium mb-2">Sources:</div>
@@ -727,13 +793,26 @@ const App: React.FC = () => {
                     
                     {/* Related Documents */}
                     {relatedDocuments.length > 0 && (
-                      <div className="text-sm text-gray-600">
-                        <span className="font-medium">Related:</span>
-                        {relatedDocuments.slice(0, 3).map((doc, idx) => (
-                          <span key={idx} className="ml-2 text-blue-600">
-                            {doc.title || doc.filename}
-                          </span>
-                        ))}
+                      <div className="bg-gray-50 rounded-lg p-4 border">
+                        <h4 className="text-sm font-semibold text-gray-700 mb-3">Related Documents</h4>
+                        <div className="space-y-2">
+                          {relatedDocuments.slice(0, 3).map((doc, idx) => (
+                            <div key={idx} className="flex items-start gap-3 p-2 bg-white rounded border border-gray-200">
+                              <div className="flex-1">
+                                <div className="text-sm font-medium text-blue-600 truncate">
+                                  {doc.title || doc.filename.replace(/^\d{8}_\d{6}_/, '')}
+                                </div>
+                                <div className="text-xs text-gray-500 mt-1">
+                                  Similarity: {(doc.similarity_score * 100).toFixed(1)}% • 
+                                  Common topics: {doc.common_topics?.join(', ') || 'None'}
+                                </div>
+                              </div>
+                              <div className="text-xs text-gray-400">
+                                #{idx + 1}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
                       </div>
                     )}
                   </div>
