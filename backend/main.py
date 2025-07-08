@@ -12,6 +12,8 @@ import logging
 import faiss
 from sklearn.metrics.pairwise import cosine_similarity
 import numpy as np
+import sys
+import asyncio
 
 from document_processor import DocumentProcessor
 from rag_engine import RAGEngine
@@ -23,6 +25,15 @@ from langchain_community.document_loaders import PyMuPDFLoader # Updated import
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Print debug information
+logger.info(f"Python path: {sys.path}")
+logger.info(f"Current working directory: {os.getcwd()}")
+try:
+    import fitz
+    logger.info("Successfully imported fitz")
+except ImportError as e:
+    logger.error(f"Failed to import fitz: {e}")
 
 # Load environment variables
 load_dotenv()
@@ -606,6 +617,143 @@ async def get_related_documents(filename: str):
     related.sort(key=lambda x: x["similarity_score"], reverse=True)
     
     return {"related": related[:5]}  # Return top 5 related documents
+
+@app.get("/debug-chunks/{filename}")
+async def debug_chunks(filename: str, start_idx: Optional[int] = 0, limit: Optional[int] = 5):
+    """
+    Debug endpoint to inspect document chunks
+    """
+    if filename not in processed_documents:
+        raise HTTPException(status_code=404, detail="Document not found")
+        
+    chunks = processed_documents[filename]
+    total_chunks = len(chunks)
+    
+    # Get requested slice of chunks
+    end_idx = min(start_idx + limit, total_chunks)
+    selected_chunks = chunks[start_idx:end_idx]
+    
+    return {
+        "total_chunks": total_chunks,
+        "showing_chunks": f"{start_idx} to {end_idx-1}",
+        "chunks": [
+            {
+                "content": chunk.page_content,
+                "metadata": chunk.metadata,
+                "length": len(chunk.page_content),
+                "sentences": len(chunk.page_content.split('.'))
+            }
+            for chunk in selected_chunks
+        ]
+    }
+
+@app.get("/debug-embeddings/{filename}")
+async def debug_embeddings(filename: str, query: Optional[str] = None):
+    """
+    Debug endpoint to inspect embeddings and similarity scores
+    """
+    if filename not in processed_documents:
+        raise HTTPException(status_code=404, detail="Document not found")
+        
+    if not rage_engine.vector_store:
+        raise HTTPException(status_code=400, detail="Vector store not initialized")
+    
+    try:
+        # If query provided, show similarity to chunks
+        if query:
+            docs_and_scores = rage_engine.vector_store.similarity_search_with_score(query, k=5)
+            return {
+                "query": query,
+                "results": [
+                    {
+                        "content": doc.page_content,
+                        "metadata": doc.metadata,
+                        "similarity_score": float(score)  # Convert numpy float to Python float
+                    }
+                    for doc, score in docs_and_scores
+                ]
+            }
+        
+        # Otherwise show general embedding stats
+        return {
+            "total_embeddings": rage_engine.vector_store._collection.count(),
+            "embedding_dimension": rage_engine.vector_store._collection.dim,
+            "index_type": "FAISS"
+        }
+        
+    except Exception as e:
+        logger.error(f"Error inspecting embeddings: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/debug-index-health")
+async def check_index_health():
+    """
+    Check FAISS index health and stats
+    """
+    if not rage_engine.vector_store:
+        raise HTTPException(status_code=400, detail="Vector store not initialized")
+        
+    try:
+        # Get index stats
+        index = rage_engine.vector_store.index
+        
+        # Basic health check - try a random query
+        test_query = "This is a test query"
+        test_embedding = rage_engine.embeddings.embed_query(test_query)
+        
+        # Try search
+        D, I = index.search(np.array([test_embedding], dtype=np.float32), k=1)
+        
+        return {
+            "status": "healthy",
+            "total_vectors": index.ntotal,
+            "dimension": index.d,
+            "is_trained": index.is_trained,
+            "test_search_successful": bool(len(D) > 0 and len(I) > 0),
+            "index_path": rage_engine.faiss_index_path,
+            "index_file_exists": os.path.exists(rage_engine.faiss_index_path)
+        }
+        
+    except Exception as e:
+        logger.error(f"Index health check failed: {e}")
+        return {
+            "status": "unhealthy",
+            "error": str(e)
+        }
+
+@app.post("/debug-retrieval")
+async def debug_retrieval(query: str, k: Optional[int] = 3):
+    """
+    Debug endpoint to inspect retrieval results
+    """
+    if not rage_engine.vector_store:
+        raise HTTPException(status_code=400, detail="Vector store not initialized")
+        
+    try:
+        # Get raw retrieval results
+        docs = rage_engine.vector_store.similarity_search_with_score(query, k=k)
+        
+        # Format results
+        results = []
+        for doc, score in docs:
+            results.append({
+                "content": doc.page_content,
+                "metadata": doc.metadata,
+                "similarity_score": float(score),
+                "source_file": doc.metadata.get("filename", "unknown"),
+                "section": doc.metadata.get("section", "unknown"),
+                "chunk_index": doc.metadata.get("chunk_index", -1)
+            })
+            
+        return {
+            "query": query,
+            "num_results": len(results),
+            "results": results
+        }
+        
+    except Exception as e:
+        logger.error(f"Retrieval debug failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":
     import uvicorn

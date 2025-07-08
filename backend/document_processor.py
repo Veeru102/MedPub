@@ -1,10 +1,10 @@
-import fitz  # PyMuPDF
 from typing import List, Dict, Any
-from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_community.document_loaders import PyMuPDFLoader
+from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain_community.document_loaders import PDFPlumberLoader
 from langchain_core.documents import Document
 import os
 import logging
+import json
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -33,17 +33,17 @@ class DocumentProcessor:
             raise FileNotFoundError(f"PDF file not found: {pdf_path}")
             
         try:
-            doc = fitz.open(pdf_path)
+            loader = PDFPlumberLoader(pdf_path)
+            doc = loader.load()[0]  # Get first page to extract metadata
             metadata = doc.metadata
             result = {
                 "title": metadata.get("title", ""),
                 "author": metadata.get("author", ""),
                 "subject": metadata.get("subject", ""),
                 "keywords": metadata.get("keywords", ""),
-                "page_count": len(doc),
+                "page_count": metadata.get("page_count", 0),
                 "creation_date": metadata.get("creationDate", ""),
             }
-            doc.close()  # Properly close the document
             return result
         except Exception as e:
             logger.error(f"Error extracting metadata from {pdf_path}: {e}")
@@ -58,9 +58,9 @@ class DocumentProcessor:
             raise FileNotFoundError(f"PDF file not found: {pdf_path}")
             
         try:
-            # Load PDF using LangChain's PyMuPDFLoader
+            # Load PDF using PDFPlumberLoader
             logger.info(f"Loading PDF file: {pdf_path}")
-            loader = PyMuPDFLoader(pdf_path)
+            loader = PDFPlumberLoader(pdf_path)
             pages = loader.load()
             
             if not pages:

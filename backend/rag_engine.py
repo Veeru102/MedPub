@@ -1,11 +1,11 @@
 from typing import List, Dict, Any
 import os
-from langchain_community.embeddings import OpenAIEmbeddings
-from langchain_community.chat_models import ChatOpenAI
+from langchain_openai import OpenAIEmbeddings, ChatOpenAI
 from langchain_community.vectorstores import FAISS
-from langchain.chains import ConversationalRetrievalChain
+from langchain.chains import create_retrieval_chain
 from langchain.memory import ConversationBufferMemory
 from langchain_core.documents import Document
+from langchain_core.prompts import ChatPromptTemplate
 import openai
 from openai import AsyncOpenAI
 from dotenv import load_dotenv
@@ -13,10 +13,24 @@ import logging
 import asyncio
 import time
 from functools import wraps
+from collections import defaultdict
 
 # Configure logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
 logger = logging.getLogger(__name__)
+
+# Add DEBUG level file handler
+debug_handler = logging.FileHandler('rag_debug.log')
+debug_handler.setLevel(logging.DEBUG)
+debug_formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+debug_handler.setFormatter(debug_formatter)
+logger.addHandler(debug_handler)
+
+# Performance metrics
+metrics = defaultdict(float)
 
 load_dotenv()
 
@@ -65,6 +79,24 @@ async def retry_with_exponential_backoff(
             else:
                 raise e
 
+def log_time(func):
+    """Decorator to log function execution time"""
+    @wraps(func)
+    async def wrapper(*args, **kwargs):
+        start_time = time.time()
+        try:
+            result = await func(*args, **kwargs)
+            elapsed = time.time() - start_time
+            metrics[func.__name__] = elapsed
+            logger.debug(f"{func.__name__} took {elapsed:.2f} seconds")
+            return result
+        except Exception as e:
+            elapsed = time.time() - start_time
+            metrics[f"{func.__name__}_error"] = elapsed
+            logger.error(f"{func.__name__} failed after {elapsed:.2f} seconds: {e}")
+            raise
+    return wrapper
+
 class RAGEngine:
     def __init__(self):
         api_key = os.getenv("OPENAI_API_KEY")
@@ -89,6 +121,7 @@ class RAGEngine:
         )
         # Define the path for the FAISS index file
         self.faiss_index_path = "faiss_index"
+        self.document_stats = defaultdict(int)  # Track document statistics
 
     def create_vector_store(self, chunks: List[str], metadata: Dict[str, Any] = None):
         """
@@ -113,17 +146,26 @@ class RAGEngine:
             raise ValueError("Cannot create vector store from empty documents list.")
 
         try:
+            # Log document information
+            filenames = set(doc.metadata.get('filename', 'unknown') for doc in documents)
+            logger.info(f"Creating vector store for {len(documents)} chunks from {len(filenames)} documents")
+            logger.debug(f"Processing files: {', '.join(filenames)}")
+
             # Add delay before creating vector store to avoid rate limits
             logger.info("Creating vector store with rate limiting...")
             await asyncio.sleep(1)  # Initial delay
             
-            # Use retry logic for vector store creation
+            start_time = time.time()
             self.vector_store = await retry_with_exponential_backoff(
                 self._create_vector_store_async,
                 documents
             )
+            
+            elapsed = time.time() - start_time
+            logger.info(f"Vector store creation completed in {elapsed:.2f} seconds")
+            
+            self._log_vector_store_stats()
             self.save_vector_store()
-            logger.info("Vector store created successfully")
             
         except Exception as e:
             logger.error(f"Failed to create vector store from documents: {e}")
@@ -248,47 +290,46 @@ class RAGEngine:
         if not self.vector_store:
             self.load_vector_store()
             if not self.vector_store:
-                logger.warning("Vector store not available. RAG queries will not function.")
-                self.qa_chain = None
                 return
 
         try:
-            if not self.qa_chain or self.qa_chain.memory != self.memory:
+            # Create the language model
+            llm = ChatOpenAI(
+                temperature=0.3,
+                model="gpt-3.5-turbo"
+            )
 
+            # Create the prompt template
+            prompt = ChatPromptTemplate.from_messages([
+                ("system", "You are a helpful medical research assistant. Use the following context to answer the question. If you don't know the answer, say so."),
+                ("human", "Context: {context}\n\nQuestion: {question}")
+            ])
 
-                models_to_try = ["gpt-4o-mini", "gpt-4-turbo", "gpt-4", "gpt-3.5-turbo"]
-                
-                qa_chain_created = False
-                for model_name in models_to_try:
-                    try:
-                        self.qa_chain = ConversationalRetrievalChain.from_llm(
-                            llm=ChatOpenAI(model_name=model_name, temperature=0),
-                            retriever=self.vector_store.as_retriever(),
-                            memory=self.memory,
-                            return_source_documents=True,
-                            output_key="answer"
-                        )
-                        logger.info(f"Successfully created QA chain with model: {model_name}")
-                        qa_chain_created = True
-                        break
-                    except Exception as e:
-                        logger.warning(f"Failed to create QA chain with model {model_name}: {e}")
-                        continue
-                
-                if not qa_chain_created:
-                    raise Exception("Failed to create QA chain with any available model")
+            # Create the chain
+            self.qa_chain = create_retrieval_chain(
+                self.vector_store.as_retriever(),
+                prompt=prompt,
+                llm=llm,
+                memory=self.memory
+            )
+            
+            logger.info("QA chain setup complete")
                     
         except Exception as e:
-            logger.error(f"Failed to setup QA chain: {e}")
-            self.qa_chain = None
+            logger.error(f"Error setting up QA chain: {e}")
             raise
 
-    async def query(self, question: str) -> Dict[str, Any]:
+    async def query(self, question: str, filenames: List[str] = None) -> Dict[str, Any]:
         """
         Query the RAG system with a question
         """
+        start_time = time.time()
+        logger.info(f"Received query: {question}")
+        logger.debug(f"Query context - Filenames: {filenames if filenames else 'All documents'}")
+
         if not self.qa_chain or self.qa_chain.retriever.vectorstore != self.vector_store:
             try:
+                logger.info("Setting up QA chain...")
                 self.setup_qa_chain()
             except Exception as e:
                 logger.error(f"Failed to setup QA chain during query: {e}")
@@ -298,21 +339,49 @@ class RAGEngine:
                 }
 
         if not self.qa_chain:
+            logger.warning("RAG system not initialized")
             return {
                 "answer": "The RAG system is not initialized. Please upload and process a document first.",
                 "sources": []
             }
 
         try:
+            # Log vector store stats
+            if self.vector_store:
+                doc_count = self.vector_store._collection.count()
+                logger.info(f"Vector store contains {doc_count} documents")
+                
+            # Start embedding timer
+            embed_start = time.time()
             result = await self.qa_chain.ainvoke({"question": question})
+            embed_time = time.time() - embed_start
+            logger.debug(f"Embedding and retrieval took {embed_time:.2f} seconds")
+
+            # Log retrieved documents
+            source_docs = result.get("source_documents", [])
+            logger.info(f"Retrieved {len(source_docs)} relevant chunks")
+            
+            for idx, doc in enumerate(source_docs):
+                logger.debug(
+                    f"Source {idx+1}:\n"
+                    f"  Filename: {doc.metadata.get('filename', 'unknown')}\n"
+                    f"  Page: {doc.metadata.get('page', 'unknown')}\n"
+                    f"  Chunk index: {doc.metadata.get('chunk_index', 'unknown')}\n"
+                    f"  Content length: {len(doc.page_content)} chars"
+                )
+
+            total_time = time.time() - start_time
+            logger.info(f"Query processed in {total_time:.2f} seconds")
+
             return {
                 "answer": result.get("answer", ""),
                 "sources": [
                     {
                         "content": doc.page_content,
-                        "metadata": doc.metadata
+                        "metadata": doc.metadata,
+                        "processing_time": total_time
                     }
-                    for doc in result.get("source_documents", [])
+                    for doc in source_docs
                 ]
             }
         except Exception as e:
@@ -329,11 +398,16 @@ class RAGEngine:
             temperature=temperature
         )
 
-    async def summarize_paper(self, chunks: List[str]) -> Dict[str, Any]:
+    @log_time
+    async def summarize_paper(self, chunks: List[str], filename: str = None) -> Dict[str, Any]:
         """
         Generate a summary of the paper using GPT with rate limiting
         """
+        logger.info(f"Starting paper summarization for {filename if filename else 'unknown document'}")
+        logger.debug(f"Processing {len(chunks)} chunks, total size: {sum(len(c) for c in chunks)} chars")
+
         if not chunks:
+            logger.warning("No content provided for summarization")
             return {
                 "summary": "No content to summarize.",
                 "status": "success"
@@ -344,6 +418,7 @@ class RAGEngine:
             
             max_prompt_length = 12000  # Reduced to be more conservative
             if len(full_text) > max_prompt_length:
+                logger.info(f"Text truncated from {len(full_text)} to {max_prompt_length} chars")
                 full_text = full_text[:max_prompt_length] + "\n... [Content truncated] ..."
 
             prompt = f"""You are a medical research assistant. Your task is to summarize the uploaded paper with emphasis on its:
@@ -366,6 +441,7 @@ Paper content:
             for model_name in models_to_try:
                 try:
                     logger.info(f"Attempting summarization with model: {model_name}")
+                    start_time = time.time()
                     
                     response = await self._make_chat_completion(
                         model_name=model_name,
@@ -376,14 +452,16 @@ Paper content:
                         temperature=0.3
                     )
                     
-                    logger.info(f"Successfully used model: {model_name}")
+                    elapsed = time.time() - start_time
+                    logger.info(f"Successfully used {model_name} (took {elapsed:.2f}s)")
+                    metrics[f"summarize_{model_name}"] = elapsed
                     break
                     
                 except Exception as e:
                     logger.warning(f"Failed to use model {model_name}: {e}")
                     last_error = e
+                    metrics[f"summarize_{model_name}_error"] = time.time() - start_time
                     
-                    # Add extra delay if it's a rate limit error
                     if "429" in str(e):
                         logger.info("Rate limit detected, waiting extra time before next model...")
                         await asyncio.sleep(5)
@@ -391,11 +469,14 @@ Paper content:
                     continue
             
             if response is None:
+                logger.error(f"All summarization models failed. Last error: {last_error}")
                 raise Exception(f"All models failed. Last error: {last_error}")
 
             return {
                 "summary": response.choices[0].message.content,
-                "status": "success"
+                "status": "success",
+                "model_used": model_name,
+                "processing_stats": dict(metrics)
             }
 
         except Exception as e:
@@ -404,4 +485,119 @@ Paper content:
                 "summary": "Error generating summary",
                 "status": "error",
                 "error": str(e)
-            } 
+            }
+
+    def _log_vector_store_stats(self):
+        """Log current vector store statistics"""
+        try:
+            if self.vector_store:
+                doc_count = self.vector_store._collection.count()
+                dim = self.vector_store._collection.dim
+                logger.info(f"FAISS index stats:\n"
+                          f"  Documents: {doc_count}\n"
+                          f"  Embedding dimension: {dim}\n"
+                          f"  Index type: {type(self.vector_store._index).__name__}")
+        except Exception as e:
+            logger.error(f"Error getting vector store stats: {e}")
+
+    async def create_vector_store_from_documents_with_retry(self, documents: List[Document]):
+        """
+        Create a FAISS vector store from documents with rate limiting
+        """
+        if not documents:
+            raise ValueError("Cannot create vector store from empty documents list.")
+
+        try:
+            # Log document information
+            filenames = set(doc.metadata.get('filename', 'unknown') for doc in documents)
+            logger.info(f"Creating vector store for {len(documents)} chunks from {len(filenames)} documents")
+            logger.debug(f"Processing files: {', '.join(filenames)}")
+
+            # Add delay before creating vector store to avoid rate limits
+            logger.info("Creating vector store with rate limiting...")
+            await asyncio.sleep(1)  # Initial delay
+            
+            start_time = time.time()
+            self.vector_store = await retry_with_exponential_backoff(
+                self._create_vector_store_async,
+                documents
+            )
+            
+            elapsed = time.time() - start_time
+            logger.info(f"Vector store creation completed in {elapsed:.2f} seconds")
+            
+            self._log_vector_store_stats()
+            self.save_vector_store()
+            
+        except Exception as e:
+            logger.error(f"Failed to create vector store from documents: {e}")
+            raise
+
+    async def query(self, question: str, filenames: List[str] = None) -> Dict[str, Any]:
+        """
+        Query the RAG system with a question
+        """
+        start_time = time.time()
+        logger.info(f"Received query: {question}")
+        logger.debug(f"Query context - Filenames: {filenames if filenames else 'All documents'}")
+
+        if not self.qa_chain or self.qa_chain.retriever.vectorstore != self.vector_store:
+            try:
+                logger.info("Setting up QA chain...")
+                self.setup_qa_chain()
+            except Exception as e:
+                logger.error(f"Failed to setup QA chain during query: {e}")
+                return {
+                    "answer": "An error occurred while setting up the RAG system. Please try again.",
+                    "sources": []
+                }
+
+        if not self.qa_chain:
+            logger.warning("RAG system not initialized")
+            return {
+                "answer": "The RAG system is not initialized. Please upload and process a document first.",
+                "sources": []
+            }
+
+        try:
+            # Log vector store stats
+            if self.vector_store:
+                doc_count = self.vector_store._collection.count()
+                logger.info(f"Vector store contains {doc_count} documents")
+                
+            # Start embedding timer
+            embed_start = time.time()
+            result = await self.qa_chain.ainvoke({"question": question})
+            embed_time = time.time() - embed_start
+            logger.debug(f"Embedding and retrieval took {embed_time:.2f} seconds")
+
+            # Log retrieved documents
+            source_docs = result.get("source_documents", [])
+            logger.info(f"Retrieved {len(source_docs)} relevant chunks")
+            
+            for idx, doc in enumerate(source_docs):
+                logger.debug(
+                    f"Source {idx+1}:\n"
+                    f"  Filename: {doc.metadata.get('filename', 'unknown')}\n"
+                    f"  Page: {doc.metadata.get('page', 'unknown')}\n"
+                    f"  Chunk index: {doc.metadata.get('chunk_index', 'unknown')}\n"
+                    f"  Content length: {len(doc.page_content)} chars"
+                )
+
+            total_time = time.time() - start_time
+            logger.info(f"Query processed in {total_time:.2f} seconds")
+
+            return {
+                "answer": result.get("answer", ""),
+                "sources": [
+                    {
+                        "content": doc.page_content,
+                        "metadata": doc.metadata,
+                        "processing_time": total_time
+                    }
+                    for doc in source_docs
+                ]
+            }
+        except Exception as e:
+            logger.error(f"Error in RAG query: {e}")
+            raise 
