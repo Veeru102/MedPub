@@ -21,6 +21,7 @@ from enhanced_document_processor import EnhancedDocumentProcessor
 from llm_services import LLMService
 from langchain_core.documents import Document # Import Document
 from langchain_community.document_loaders import PyMuPDFLoader # Updated import
+from arxiv_search import router as arxiv_router, startup_arxiv_search
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -60,6 +61,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Include arXiv search router
+app.include_router(arxiv_router)
+
 # Create uploads directory if it doesn't exist
 UPLOAD_DIR = "uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
@@ -85,6 +89,13 @@ async def startup_event():
         rage_engine.load_vector_store()
     except Exception as e:
         logger.error(f"Failed to load FAISS index during startup: {e}")
+    
+    # Initialize arXiv search system
+    logger.info("Application startup: Initializing arXiv search...")
+    try:
+        await startup_arxiv_search()
+    except Exception as e:
+        logger.error(f"Failed to initialize arXiv search during startup: {e}")
 
 
 class SummarizeRequest(BaseModel):
