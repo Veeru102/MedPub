@@ -1,4 +1,4 @@
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 import os
 from langchain_openai import OpenAIEmbeddings, ChatOpenAI
 from langchain_community.vectorstores import FAISS
@@ -20,7 +20,11 @@ logger = logging.getLogger(__name__)
 
 load_dotenv()
 
-def rate_limit(calls_per_minute=50):
+# Optimized batch configuration
+BATCH_SIZE = 16  # Increased from 3/5 to 16
+RATE_LIMIT_CALLS_PER_MINUTE = 50
+
+def rate_limit(calls_per_minute=RATE_LIMIT_CALLS_PER_MINUTE):
     """Rate limiting decorator"""
     def decorator(func):
         last_called = [0.0]
@@ -33,7 +37,7 @@ def rate_limit(calls_per_minute=50):
             
             if elapsed < time_between_calls:
                 sleep_time = time_between_calls - elapsed
-                logger.info(f"Rate limiting: waiting {sleep_time:.2f} seconds")
+                logger.debug(f"Rate limiting: waiting {sleep_time:.2f} seconds")  # Reduced to debug level
                 await asyncio.sleep(sleep_time)
             
             last_called[0] = time.time()
@@ -43,13 +47,18 @@ def rate_limit(calls_per_minute=50):
 
 async def retry_with_exponential_backoff(
     func,
-    max_retries=3,
-    initial_delay=1,
-    backoff_factor=2,
+    max_retries: int = 3,  # Type hint added
+    initial_delay: float = 1,
+    backoff_factor: float = 2,
     *args,
     **kwargs
 ):
     """Retry function with exponential backoff"""
+    # Ensure max_retries is an integer
+    if not isinstance(max_retries, int):
+        raise TypeError("max_retries must be an integer")
+    
+    start_time = time.time()
     for attempt in range(max_retries + 1):
         try:
             return await func(*args, **kwargs)
@@ -57,10 +66,11 @@ async def retry_with_exponential_backoff(
             if attempt == max_retries:
                 raise e
             
-            # Check if it's a rate limit error
-            if "429" in str(e) or "rate" in str(e).lower():
+            # Only backoff on rate limit errors
+            if "429" in str(e) or "rate limit" in str(e).lower():
                 delay = initial_delay * (backoff_factor ** attempt)
-                logger.warning(f"Rate limit hit, retrying in {delay} seconds (attempt {attempt + 1}/{max_retries + 1})")
+                elapsed = time.time() - start_time
+                logger.warning(f"Rate limit hit after {elapsed:.2f}s, retrying in {delay}s (attempt {attempt + 1}/{max_retries + 1})")
                 await asyncio.sleep(delay)
             else:
                 raise e
@@ -107,49 +117,60 @@ class RAGEngine:
 
     async def create_vector_store_from_documents_with_retry(self, documents: List[Document]):
         """
-        Create a FAISS vector store from documents with rate limiting
+        Create a FAISS vector store from documents with optimized batching
         """
         if not documents:
             raise ValueError("Cannot create vector store from empty documents list.")
 
         try:
-            # Add delay before creating vector store to avoid rate limits
-            logger.info("Creating vector store with rate limiting...")
-            await asyncio.sleep(1)  # Initial delay
+            logger.info(f"Creating vector store with {len(documents)} documents in batches of {BATCH_SIZE}")
+            start_time = time.time()
             
             # Use retry logic for vector store creation
             self.vector_store = await retry_with_exponential_backoff(
                 self._create_vector_store_async,
-                documents
+                max_retries=3,  # Explicit int
+                documents=documents  # Named argument
             )
+            
+            elapsed = time.time() - start_time
+            logger.info(f"Vector store created in {elapsed:.2f}s")
             self.save_vector_store()
-            logger.info("Vector store created successfully")
             
         except Exception as e:
             logger.error(f"Failed to create vector store from documents: {e}")
             raise
 
     async def _create_vector_store_async(self, documents: List[Document]):
-        """Helper method to create vector store asynchronously"""
-        # Process documents in smaller batches to avoid rate limits
-        batch_size = 5
-        if len(documents) > batch_size:
-            logger.info(f"Processing {len(documents)} documents in batches of {batch_size}")
+        """Helper method to create vector store asynchronously with optimized batching"""
+        if len(documents) > BATCH_SIZE:
+            logger.info(f"Processing {len(documents)} documents in {len(documents) // BATCH_SIZE + 1} batches")
             
             # Create initial vector store with first batch
-            first_batch = documents[:batch_size]
+            first_batch = documents[:BATCH_SIZE]
+            batch_start = time.time()
             vector_store = FAISS.from_documents(first_batch, self.embeddings)
+            batch_time = time.time() - batch_start
+            logger.info(f"Batch 1/{len(documents) // BATCH_SIZE + 1} completed in {batch_time:.2f}s")
             
-            # Add remaining documents in batches with delays
-            for i in range(batch_size, len(documents), batch_size):
-                batch = documents[i:i + batch_size]
-                logger.info(f"Processing batch {i//batch_size + 1}/{len(documents)//batch_size + 1}")
+            # Add remaining documents in batches
+            for i in range(BATCH_SIZE, len(documents), BATCH_SIZE):
+                batch = documents[i:i + BATCH_SIZE]
+                batch_start = time.time()
                 
-                # Add delay between batches
-                await asyncio.sleep(2)
-                
-                batch_store = FAISS.from_documents(batch, self.embeddings)
-                vector_store.merge_from(batch_store)
+                try:
+                    batch_store = FAISS.from_documents(batch, self.embeddings)
+                    vector_store.merge_from(batch_store)
+                    
+                    batch_time = time.time() - batch_start
+                    batch_num = i // BATCH_SIZE + 1
+                    logger.info(f"Batch {batch_num}/{len(documents) // BATCH_SIZE + 1} completed in {batch_time:.2f}s")
+                    
+                except Exception as e:
+                    if "429" in str(e):
+                        logger.warning(f"Rate limit hit on batch {i // BATCH_SIZE + 1}, retrying...")
+                        raise  # Let retry_with_exponential_backoff handle it
+                    raise
             
             return vector_store
         else:
@@ -159,51 +180,46 @@ class RAGEngine:
         """
         Create a FAISS vector store from a list of Langchain Document objects
         """
-        # Run the async version in the event loop
         try:
             loop = asyncio.get_event_loop()
             if loop.is_running():
-                # If we're already in an event loop, use create_task
-                task = loop.create_task(self.create_vector_store_from_documents_with_retry(documents))
-                # This is a bit tricky - we need to handle this case
-                # For now, let's use the synchronous version but with delays
-                logger.warning("Already in event loop, using synchronous method with delays")
+                logger.warning("Already in event loop, using synchronous method with optimized batching")
                 self._create_vector_store_sync_with_delays(documents)
             else:
                 loop.run_until_complete(self.create_vector_store_from_documents_with_retry(documents))
         except RuntimeError:
-            # No event loop, use synchronous version
             self._create_vector_store_sync_with_delays(documents)
 
     def _create_vector_store_sync_with_delays(self, documents: List[Document]):
-        """Synchronous version with delays between API calls"""
-        import time
-        
+        """Synchronous version with optimized batching"""
         if not documents:
             raise ValueError("Cannot create vector store from empty documents list.")
 
         try:
-            batch_size = 3  # Smaller batch size for sync version
-            if len(documents) > batch_size:
-                logger.info(f"Processing {len(documents)} documents in batches of {batch_size} with delays")
-                
+            logger.info(f"Processing {len(documents)} documents in batches of {BATCH_SIZE}")
+            start_time = time.time()
+            
+            if len(documents) > BATCH_SIZE:
                 # Create initial vector store with first batch
-                first_batch = documents[:batch_size]
+                first_batch = documents[:BATCH_SIZE]
                 self.vector_store = FAISS.from_documents(first_batch, self.embeddings)
                 
-                # Add remaining documents in batches with delays
-                for i in range(batch_size, len(documents), batch_size):
-                    batch = documents[i:i + batch_size]
-                    logger.info(f"Processing batch {i//batch_size + 1}, waiting 3 seconds...")
-                    
-                    # Add delay between batches
-                    time.sleep(3)
+                # Add remaining documents in batches
+                for i in range(BATCH_SIZE, len(documents), BATCH_SIZE):
+                    batch = documents[i:i + BATCH_SIZE]
+                    batch_start = time.time()
                     
                     batch_store = FAISS.from_documents(batch, self.embeddings)
                     self.vector_store.merge_from(batch_store)
+                    
+                    batch_time = time.time() - batch_start
+                    batch_num = i // BATCH_SIZE + 1
+                    logger.info(f"Batch {batch_num}/{len(documents) // BATCH_SIZE + 1} completed in {batch_time:.2f}s")
             else:
                 self.vector_store = FAISS.from_documents(documents, self.embeddings)
                 
+            elapsed = time.time() - start_time
+            logger.info(f"Vector store created in {elapsed:.2f}s")
             self.save_vector_store()
             
         except Exception as e:
@@ -251,24 +267,19 @@ class RAGEngine:
                 return
 
         try:
-            # Create the language model
+            # Create the language model with custom prompt
+            system_prompt = "You are a helpful medical research assistant. Use the following context to answer the question. If you don't know the answer, say so."
             llm = ChatOpenAI(
                 temperature=0.3,
                 model="gpt-3.5-turbo"
-            )
+            ).with_config({  # Configure prompt via llm instead
+                "prompt": system_prompt
+            })
 
-            # Create the prompt template
-            prompt = ChatPromptTemplate.from_messages([
-                ("system", "You are a helpful medical research assistant. Use the following context to answer the question. If you don't know the answer, say so."),
-                ("human", "Context: {context}\n\nQuestion: {question}")
-            ])
-
-            # Create the chain
+            # Create the chain without prompt parameter
             self.qa_chain = create_retrieval_chain(
-                self.vector_store.as_retriever(),
-                prompt=prompt,
                 llm=llm,
-                memory=self.memory
+                retriever=self.vector_store.as_retriever()
             )
             
             logger.info("QA chain setup complete")
