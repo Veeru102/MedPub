@@ -1,6 +1,7 @@
 import React, { useState, useCallback } from "react";
 import PDFViewer from './components/PDFViewer';
 import AudienceSelector from './components/AudienceSelector';
+import SimilarPapersBox from './components/SimilarPapersBox';
 import type { AudienceType } from './components/AudienceSelector';
 import HighlightableText from './components/HighlightableText';
 
@@ -749,7 +750,7 @@ const Chat: React.FC<{ files: string[] }> = ({ files }) => {
   );
 };
 
-const BACKEND_URL = "https://medscope.onrender.com";
+const BACKEND_URL = "http://localhost:8000";
 
 const App: React.FC = () => {
   const [uploadedFiles, setUploadedFiles] = useState<string[]>([]);
@@ -763,6 +764,7 @@ const App: React.FC = () => {
 
 
   const handleUpload = async (file: File) => {
+    console.log(`Starting upload for file: ${file.name} to ${BACKEND_URL}/upload`);
     setUploading(true);
     const formData = new FormData();
     formData.append("file", file);
@@ -771,8 +773,18 @@ const App: React.FC = () => {
         method: "POST",
         body: formData,
       });
-      if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+      
+      console.log(`Upload response status: ${res.status}`);
+      
+      if (!res.ok) {
+        const errorText = await res.text();
+        console.error('Upload failed:', errorText);
+        throw new Error(`HTTP error! status: ${res.status} - ${errorText}`);
+      }
+      
       const data = await res.json();
+      console.log('Upload successful, response data:', data);
+      
       setUploadedFiles((prev) => [...prev, data.filename]);
       // Clear summary if file is re-uploaded or new file is uploaded
       setSummaries(prev => { delete prev[data.filename]; return { ...prev }; });
@@ -959,6 +971,18 @@ const App: React.FC = () => {
                       backendUrl={BACKEND_URL}
                     />
                   </div>
+                )}
+
+                {/* Similar Research Papers Box */}
+                {selectedFiles.length === 1 && (
+                  <SimilarPapersBox 
+                    filename={selectedFiles[0]}
+                    backendUrl={BACKEND_URL}
+                    onError={(error) => {
+                      console.error('Similar papers error:', error);
+                      // Could add toast notification here
+                    }}
+                  />
                 )}
 
                 {/* Display summary only if ONE file is selected and summarized */}

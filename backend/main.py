@@ -36,18 +36,22 @@ try:
 except ImportError as e:
     logger.error(f"Failed to import fitz: {e}")
 
-# Load environment variables
-load_dotenv()
+# Load environment variables with .env taking precedence
+load_dotenv(override=True)  # This ensures .env overrides shell variables
+
+# Update ARXIV_LOAD_LIMIT to 1000
+os.environ["ARXIV_LOAD_LIMIT"] = "1000"
 
 # Verify OpenAI API key is set
 api_key = os.getenv("OPENAI_API_KEY")
 if not api_key:
     logger.error("OPENAI_API_KEY environment variable is not set")
-    logger.error("Please set the OPENAI_API_KEY environment variable in your Render dashboard")
-    logger.error("Go to: Dashboard > Service > Environment and add OPENAI_API_KEY")
+    logger.error("Please set the OPENAI_API_KEY in your .env file")
     raise ValueError("OPENAI_API_KEY environment variable is not set")
 else:
-    logger.info(f"OpenAI API Key loaded successfully (starts with: {api_key[:10]}...)")
+    # Only show first and last 4 characters of the key for security
+    key_preview = f"{api_key[:4]}...{api_key[-4:]}"
+    logger.info(f"OpenAI API Key loaded successfully (format: {key_preview})")
     logger.info(f"API Key length: {len(api_key)} characters")
 
 app = FastAPI(title="MedCopilot API")
@@ -599,35 +603,119 @@ async def get_document_info(filename: str):
 @app.get("/related-documents/{filename}")
 async def get_related_documents(filename: str):
     """
-    Find related documents based on topic similarity
+    Get related documents based on similarity to the given document
     """
-    if filename not in document_sections:
+    if filename not in processed_documents:
         raise HTTPException(status_code=404, detail="Document not found")
     
-    target_topics = set(document_sections[filename].get("topics", []))
-    
-    if not target_topics:
-        return {"related": []}
-    
-    related = []
-    for other_filename, other_info in document_sections.items():
-        if other_filename != filename:
-            other_topics = set(other_info.get("topics", []))
+    try:
+        import re
+        # Get topics for the document
+        doc_info = document_sections.get(filename, {})
+        topics = doc_info.get('topics', [])
+        
+        # Find similar documents based on topics
+        related_docs = []
+        for other_filename, other_doc_info in document_sections.items():
+            if other_filename == filename:
+                continue
             
-            # Calculate topic overlap
-            overlap = len(target_topics.intersection(other_topics))
-            if overlap > 0:
-                related.append({
-                    "filename": other_filename,
-                    "title": other_info.get("metadata", {}).get("title", other_filename),
-                    "common_topics": list(target_topics.intersection(other_topics)),
-                    "similarity_score": overlap / len(target_topics.union(other_topics))
+            other_topics = other_doc_info.get('topics', [])
+            if not other_topics:
+                continue
+                
+            # Calculate topic similarity (simple intersection)
+            common_topics = list(set(topics) & set(other_topics))
+            if common_topics:
+                similarity_score = len(common_topics) / len(set(topics + other_topics))
+                related_docs.append({
+                    'filename': other_filename,
+                    'title': other_doc_info.get('title', re.sub(r'^\d{8}_\d{6}_', '', other_filename)),
+                    'topics': other_topics,
+                    'common_topics': common_topics,
+                    'similarity_score': similarity_score
                 })
+        
+        # Sort by similarity and return top 5
+        related_docs.sort(key=lambda x: x['similarity_score'], reverse=True)
+        return {"related": related_docs[:5]}
+        
+    except Exception as e:
+        logger.error(f"Error getting related documents for {filename}: {e}")
+        raise HTTPException(status_code=500, detail=f"Error finding related documents: {str(e)}")
+
+@app.get("/similar-papers/{filename}")
+async def get_similar_papers(filename: str, limit: int = 3):
+    """
+    Get similar arXiv papers for an uploaded PDF
+    """
+    logger.info(f"Getting similar papers for: {filename}")
     
-    # Sort by similarity score
-    related.sort(key=lambda x: x["similarity_score"], reverse=True)
+    if filename not in processed_documents:
+        raise HTTPException(status_code=404, detail="Document not found")
     
-    return {"related": related[:5]}  # Return top 5 related documents
+    try:
+        # Extract text content from processed document chunks
+        document_chunks = processed_documents[filename]
+        if not document_chunks:
+            raise HTTPException(status_code=400, detail="No content available for the document")
+        
+        # Use first few chunks or summary-like content for better matching
+        # Take first 5 chunks to get representative content without overwhelming the search
+        chunks_text = [doc.page_content for doc in document_chunks[:5]]
+        search_text = '\n'.join(chunks_text)
+        
+        # Limit search text length to avoid API limits (around 1000-2000 characters)
+        if len(search_text) > 2000:
+            search_text = search_text[:2000]
+        
+        logger.info(f"Using {len(search_text)} characters for similarity search")
+    
+        # Import and call the existing arXiv search function
+        from arxiv_search import search_similar_papers
+        from arxiv_search import arxiv_state
+        
+        # Check if arXiv search is initialized
+        if not arxiv_state.is_initialized:
+            raise HTTPException(
+                status_code=503, 
+                detail="arXiv search system not ready. Please try again in a moment."
+            )
+        
+        # Search for similar papers
+        results_df = search_similar_papers(
+            index=arxiv_state.faiss_index,
+            metadata_df=arxiv_state.metadata_df,
+            query_text=search_text,
+            model=arxiv_state.sentence_model,
+            k=limit
+        )
+        
+        # Format results
+        papers = []
+        for _, row in results_df.iterrows():
+            paper = {
+                "id": row.get("id", ""),
+                "title": row.get("title", ""),
+                "abstract": row.get("abstract", ""),
+                "similarity_score": float(row.get("similarity_score", 0.0)),
+                "rank": int(row.get("rank", 0)),
+                "arxiv_url": f"https://arxiv.org/abs/{row.get('id', '')}" if row.get("id") else None
+            }
+            papers.append(paper)
+        
+        logger.info(f"Found {len(papers)} similar papers for {filename}")
+    
+        return {
+            "papers": papers,
+            "total_found": len(papers),
+            "filename": filename,
+            "query_length": len(search_text)
+        }
+        
+    except Exception as e:
+        logger.error(f"Error finding similar papers for {filename}: {e}")
+        raise HTTPException(status_code=500, detail=f"Error finding similar papers: {str(e)}")
 
 @app.get("/debug-chunks/{filename}")
 async def debug_chunks(filename: str, start_idx: Optional[int] = 0, limit: Optional[int] = 5):
