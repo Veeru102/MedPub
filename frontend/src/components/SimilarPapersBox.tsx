@@ -243,10 +243,15 @@ const SimilarPapersBox: React.FC<SimilarPapersBoxProps> = ({
                     {paper.abstract ? (
                       <>
                         {truncateAbstract(paper.abstract)}
-                        {paper.abstract.length > 200 && (
-                          <button className="text-green-600 hover:text-green-800 ml-1 text-xs font-medium">
+                        {paper.abstract.length > 200 && paper.arxiv_url && (
+                          <a
+                            href={paper.arxiv_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-green-600 hover:text-green-800 ml-1 text-xs font-medium underline"
+                          >
                             Read more
-                          </button>
+                          </a>
                         )}
                       </>
                     ) : (

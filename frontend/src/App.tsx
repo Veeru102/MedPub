@@ -19,7 +19,11 @@ const PdfViewerPlaceholder: React.FC = () => (
 const Sidebar: React.FC<{ files: string[], onSummarize: (filename: string) => void, summaries: Record<string, string>, isCollapsed: boolean, onFileSelect: (filename: string) => void, selectedFiles: string[], onRemoveFile: (filename: string) => void, onToggleCollapse: () => void } > = ({ files, onSummarize, summaries, isCollapsed, onFileSelect, selectedFiles, onRemoveFile, onToggleCollapse }) => (
   <aside className={`flex-shrink-0 ${isCollapsed ? 'w-16' : 'w-80'} bg-gray-800 text-gray-200 h-full transition-width duration-300 overflow-y-auto flex flex-col border-r border-blue-900`}>
     <div className="p-4 border-b border-blue-900 flex items-center justify-between">
-      {!isCollapsed && <h2 className="text-xl font-semibold text-blue-300">Documents</h2>}
+      {!isCollapsed && (
+        <div className="flex items-center gap-2">
+          <h2 className="text-xl font-semibold text-blue-300">Documents</h2>
+        </div>
+      )}
       {/* Toggle Button */}
        <button 
           onClick={onToggleCollapse} 
@@ -30,8 +34,6 @@ const Sidebar: React.FC<{ files: string[], onSummarize: (filename: string) => vo
            {isCollapsed ? '>' : '<'}
        </button>
     </div>
-    {/* Search and Filter Placeholder */}
-    {/* {!isCollapsed && <input type="text" placeholder="Search..." className="m-4 p-2 rounded bg-gray-700 text-gray-200 border border-gray-600 focus:outline-none focus:border-blue-500" />} */}
 
     <ul className="flex-1 overflow-y-auto space-y-3 p-4">
       {files.length === 0 ? (
@@ -68,11 +70,14 @@ const Sidebar: React.FC<{ files: string[], onSummarize: (filename: string) => vo
                 className={`cursor-pointer p-3 rounded-lg shadow-md transition-colors duration-200 ${isSelected ? 'bg-blue-700 border border-blue-500' : 'bg-gray-700 hover:bg-gray-600 border border-transparent'}`}
                 onClick={() => onFileSelect(file)} // Toggle selection for the file
             >
-              <div className="flex justify-between items-center mb-2">
-                {/* Suggestion: Add a document icon */} 
-                <span className={`flex-1 truncate font-medium ${isSelected ? 'text-white' : 'text-blue-400'} ${isCollapsed ? 'hidden' : 'mr-2'}`}>{originalFilename}</span> {/* Use original filename here */}
+              <div className="flex items-start justify-between mb-2 min-h-0">
+                <div className="flex-1 min-w-0 mr-2">
+                  <span className={`block font-medium text-sm break-words ${isSelected ? 'text-white' : 'text-blue-400'} ${isCollapsed ? 'hidden' : ''}`}>
+                    {originalFilename}
+                  </span>
+                </div>
                 {!isCollapsed && (
-                   <span className={`flex-shrink-0 text-xs font-semibold px-2 py-1 rounded-full
+                   <span className={`flex-shrink-0 text-xs font-semibold px-2 py-1 rounded-full whitespace-nowrap
                      ${summaryStatus === "Summarized" ? 'bg-green-600 text-white'
                        : summaryStatus === "Summarizing..." ? 'bg-yellow-600 text-white'
                        : 'bg-gray-500 text-white'}`}>
@@ -90,23 +95,11 @@ const Sidebar: React.FC<{ files: string[], onSummarize: (filename: string) => vo
                      <button onClick={(e) => { e.stopPropagation(); onRemoveFile(file); }} className="ml-2 text-red-400 hover:text-red-600 font-medium">Remove</button>
                   </div>
                )}
-              {/* Summary preview (optional, could add a small snippet here if not collapsed) */}
-              {/* {summaries[file] && !isCollapsed && summaryStatus === "Summarized" && <p className="text-xs text-gray-400 mt-2 line-clamp-2">{summaries[file]}</p>} */}
             </li>
           );
         })
       )}
     </ul>
-    {/* + Upload Floating Button (adjust positioning as needed) */}
-    {/* This could trigger a modal or scroll to the upload section */}
-    {/* {!isCollapsed && (
-        <div className="p-4">
-            <button className="w-full bg-blue-600 text-white py-2 rounded-full flex items-center justify-center shadow-lg hover:bg-blue-700 transition-colors duration-200">
-                 + Upload
-            </button>
-        </div>
-    )} */}
-     {/* Sizing Adjust: Adding a draggable sizing handle is a complex feature and is not implemented in this step. */}
   </aside>
 );
 
@@ -194,9 +187,6 @@ const SummaryDisplay: React.FC<{ summary: string | null, filename: string }> = (
   const [loadingSourceEvidence, setLoadingSourceEvidence] = useState(false);
   const [showExplanationResult, setShowExplanationResult] = useState(false);
   const [showSourceEvidenceResult, setShowSourceEvidenceResult] = useState(false);
-  const [similarPapers, setSimilarPapers] = useState<any[]>([]);
-  const [loadingSimilarPapers, setLoadingSimilarPapers] = useState(false);
-  const [showSimilarPapers, setShowSimilarPapers] = useState(false);
 
   // Handle question-based highlighting (improved functionality)
   const handleTextHighlight = async (selectedText: string, context: string, question: string) => {
@@ -263,48 +253,6 @@ const SummaryDisplay: React.FC<{ summary: string | null, filename: string }> = (
       setLoadingSourceEvidence(false);
     }
   };
-
-  // Handle finding similar research papers
-  const handleFindSimilarPapers = async () => {
-    setLoadingSimilarPapers(true);
-    setShowSimilarPapers(true);
-    setShowExplanationResult(false); // Hide other results
-    setShowSourceEvidenceResult(false);
-    
-    try {
-      // Extract abstract from summary - use first few sentences as query
-      const extractedQuery = summary ? summary.substring(0, 500) : '';
-      
-      if (!extractedQuery.trim()) {
-        throw new Error('No content available for similarity search');
-      }
-      
-      const response = await fetch(`${BACKEND_URL}/arxiv/search`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          query: extractedQuery,
-          limit: 5
-        })
-      });
-      
-      if (!response.ok) throw new Error('Failed to fetch similar papers');
-      const data = await response.json();
-      setSimilarPapers(data.papers || []);
-    } catch (error) {
-      console.error('Error fetching similar papers:', error);
-      setSimilarPapers([]);
-      // You could add a toast notification here
-    } finally {
-      setLoadingSimilarPapers(false);
-    }
-  };
-
-
-
-
-
-
 
   // Show a loading indicator if summary is in progress
   if (summary === "Summarizing...") {
@@ -481,103 +429,9 @@ const SummaryDisplay: React.FC<{ summary: string | null, filename: string }> = (
           )}
         </div>
       )}
-
-      {/* Similar Papers Result */}
-      {showSimilarPapers && (
-        <div className="mt-4 p-4 bg-purple-50 rounded-lg border border-purple-200">
-          <div className="flex justify-between items-start mb-3">
-            <h4 className="text-sm font-semibold text-purple-800">Similar Research Papers</h4>
-            <button
-              onClick={() => {
-                setShowSimilarPapers(false);
-                setSimilarPapers([]);
-              }}
-              className="text-purple-600 hover:text-purple-800 text-sm"
-            >
-              Close
-            </button>
-          </div>
-          {loadingSimilarPapers ? (
-            <div className="text-sm text-purple-700">Searching for similar papers...</div>
-          ) : similarPapers.length === 0 ? (
-            <div className="text-sm text-red-600">No similar papers found. Try again later.</div>
-          ) : (
-            <div className="space-y-4">
-              {similarPapers.map((paper, index) => (
-                <div key={paper.id || index} className="bg-white rounded-lg p-4 border border-purple-200 shadow-sm">
-                  <div className="flex justify-between items-start mb-2">
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs font-medium text-purple-600 bg-purple-100 px-2 py-1 rounded">
-                        #{paper.rank || index + 1}
-                      </span>
-                      <span className="text-xs text-gray-500">
-                        Similarity: {((paper.similarity_score || 0) * 100).toFixed(1)}%
-                      </span>
-                    </div>
-                    {paper.arxiv_url && (
-                      <a
-                        href={paper.arxiv_url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-xs text-blue-600 hover:text-blue-800 underline"
-                      >
-                        View on arXiv
-                      </a>
-                    )}
-                  </div>
-                  
-                  <h5 className="font-semibold text-gray-800 mb-2 text-sm leading-tight">
-                    {paper.title || 'Untitled Paper'}
-                  </h5>
-                  
-                  <div className="text-sm text-gray-600 leading-relaxed">
-                    {paper.abstract ? (
-                      paper.abstract.length > 300 ? (
-                        <>
-                          {paper.abstract.substring(0, 300)}...
-                          <button className="text-purple-600 hover:text-purple-800 ml-1 text-xs">
-                            Read more
-                          </button>
-                        </>
-                      ) : (
-                        paper.abstract
-                      )
-                    ) : (
-                      'No abstract available'
-                    )}
-                  </div>
-                  
-                  {paper.id && (
-                    <div className="mt-2 text-xs text-gray-400">
-                      arXiv ID: {paper.id}
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
       
        {/* Action buttons */}
-       <div className="mt-4 flex justify-end gap-3">
-           <button 
-             onClick={handleFindSimilarPapers} 
-             disabled={loadingSimilarPapers}
-             className="px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600 transition-colors duration-200 text-sm disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-           >
-             {loadingSimilarPapers ? (
-               <>
-                 <svg className="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                   <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                   <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l2-2.647z"></path>
-                 </svg>
-                 Finding Similar Papers...
-               </>
-             ) : (
-               'Find Similar Research'
-             )}
-           </button>
+       <div className="mt-4 flex justify-end">
            <button 
              onClick={handleCopyToClipboard} 
              className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors duration-200 text-sm"
@@ -595,6 +449,28 @@ const Chat: React.FC<{ files: string[] }> = ({ files }) => {
   const [question, setQuestion] = useState("");
   const [loading, setLoading] = useState(false);
   const [isCollapsed, setIsCollapsed] = useState(false);
+
+  // Clear chat history
+  const handleClearChat = async () => {
+    try {
+      const res = await fetch(`${BACKEND_URL}/chat/clear`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      });
+      
+      if (res.ok) {
+        setMessages([]);
+        console.log("Chat history cleared successfully");
+      } else {
+        console.warn("Failed to clear chat history on server, clearing locally only");
+        setMessages([]);
+      }
+    } catch (err) {
+      console.error("Error clearing chat:", err);
+      // Clear locally even if server request fails
+      setMessages([]);
+    }
+  };
 
   // Format chat messages with proper text handling
   const formatChatMessage = (text: string): React.ReactNode => {
@@ -625,16 +501,19 @@ const Chat: React.FC<{ files: string[] }> = ({ files }) => {
     setLoading(true);
 
     try {
-      // Use query-doc for single document or query for multiple
-      const endpoint = files.length === 1 ? '/query-doc' : '/query';
-      const body = files.length === 1 
-        ? { question, document_id: files[0] }
-        : { query: question, filenames: files };
+      // Use the new chat endpoint for conversational RAG
+      const chatHistory = messages.map(msg => ({
+        [msg.sender === "user" ? "human" : "ai"]: msg.text
+      }));
 
-      const res = await fetch(`${BACKEND_URL}${endpoint}`, {
+      const res = await fetch(`${BACKEND_URL}/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
+        body: JSON.stringify({
+          question,
+          filenames: files,
+          chat_history: chatHistory.length > 0 ? chatHistory : null
+        }),
       });
 
       if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
@@ -642,8 +521,8 @@ const Chat: React.FC<{ files: string[] }> = ({ files }) => {
       
       const botMessage = { 
         sender: "bot" as const, 
-        text: data.answer || data.message, 
-        sources: data.citations || data.sources 
+        text: data.answer, 
+        sources: data.sources 
       };
       setMessages(prev => [...prev, botMessage]);
     } catch (err) {
@@ -676,11 +555,24 @@ const Chat: React.FC<{ files: string[] }> = ({ files }) => {
   return (
      // Card container
     <div className="bg-white rounded-lg shadow-lg overflow-hidden border border-blue-200 flex flex-col h-full">
-       <div className="flex justify-between items-center p-6 border-b border-gray-200 cursor-pointer" onClick={() => setIsCollapsed(!isCollapsed)}>
-          <h3 className="text-xl font-semibold text-blue-800">Chat Assistant</h3>
-           {/* Style the collapse (-) button to be visually minimal and aligned top-right */}
-          <button className="text-gray-500 hover:text-gray-800 float-right">
-              {isCollapsed ? '+' : '-'}
+       <div className="flex justify-between items-center p-6 border-b border-gray-200">
+          <div className="flex items-center gap-4">
+            <h3 className="text-xl font-semibold text-blue-800">Chat Assistant</h3>
+            {messages.length > 0 && !isCollapsed && (
+              <button
+                onClick={handleClearChat}
+                className="px-3 py-1 text-xs text-gray-600 hover:text-red-600 border border-gray-300 hover:border-red-300 rounded-md transition-colors duration-200"
+                title="Clear conversation history"
+              >
+                Clear Chat
+              </button>
+            )}
+          </div>
+          <button 
+            className="text-gray-500 hover:text-gray-800"
+            onClick={() => setIsCollapsed(!isCollapsed)}
+          >
+            {isCollapsed ? '+' : '-'}
           </button>
        </div>
       
@@ -876,12 +768,12 @@ const App: React.FC = () => {
   };
 
   const handleFileSelect = (filename: string) => {
-      // Toggle selection: if already selected, unselect. Otherwise, select just this one.
-      if (selectedFiles.includes(filename)) {
-          setSelectedFiles([]); // Clear selection
-      } else {
-          setSelectedFiles([filename]); // Select this file
-      }
+    // Toggle selection: if already selected, unselect. If not selected, add to selection
+    setSelectedFiles(prev => 
+      prev.includes(filename) 
+        ? prev.filter(f => f !== filename)
+        : [...prev, filename]
+    );
   };
 
   return (
@@ -926,8 +818,8 @@ const App: React.FC = () => {
            {/* This container needs to take up the remaining space */} 
            {selectedFiles.length > 0 ? (
              <div className="flex-1 flex flex-col gap-8">
-                {/* Add PDF Viewer Toggle */}
-                {selectedFiles.length === 1 && (
+                {/* PDF Viewer Toggle - disabled  */}
+                {false && (
                   <div className="flex justify-between items-center">
                     <button
                       onClick={() => setShowPdfViewer(!showPdfViewer)}
@@ -935,7 +827,6 @@ const App: React.FC = () => {
                     >
                       {showPdfViewer ? 'Hide PDF Viewer' : 'Show PDF Viewer'}
                     </button>
-                    
                     {/* Related Documents */}
                     {relatedDocuments.length > 0 && (
                       <div className="bg-gray-50 rounded-lg p-4 border">
@@ -945,7 +836,7 @@ const App: React.FC = () => {
                             <div key={idx} className="flex items-start gap-3 p-2 bg-white rounded border border-gray-200">
                               <div className="flex-1">
                                 <div className="text-sm font-medium text-blue-600 truncate">
-                                  {doc.title || doc.filename.replace(/^\d{8}_\d{6}_/, '')}
+                                  {doc.title || doc.filename.replace(/^[\d]{8}_[\d]{6}_/, '')}
                                 </div>
                                 <div className="text-xs text-gray-500 mt-1">
                                   Similarity: {(doc.similarity_score * 100).toFixed(1)}% • 
@@ -963,8 +854,8 @@ const App: React.FC = () => {
                   </div>
                 )}
 
-                {/* PDF Viewer */}
-                {showPdfViewer && selectedFiles.length === 1 && (
+                {}
+                {false && showPdfViewer && selectedFiles.length === 1 && (
                   <div className="h-96 border border-gray-300 rounded-lg overflow-hidden">
                     <PDFViewer
                       filename={selectedFiles[0]}
@@ -992,15 +883,14 @@ const App: React.FC = () => {
                      filename={selectedFiles[0]}
                    />
                 )}
-                 {/* Chat takes remaining vertical space below summary if visible */}
-                {/* Ensure chat container grows */} 
+                 {}
+                {} 
                 <div className="flex-1 h-full min-h-[400px]">
-                   <Chat files={selectedFiles} />{/* Pass selected files to chat */} 
+                   <Chat files={selectedFiles} />{} 
                 </div>
              </div>
              ) : (
                 // Welcome/Instructional Message when no file is selected
-                // This div should also take up remaining space
                 <div className="flex-1 flex flex-col items-center justify-center text-center text-gray-600 italic p-8 border-2 border-dashed border-gray-300 rounded-lg bg-gray-50 bg-white">
                     <svg className="w-16 h-16 text-gray-400 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 4v16M17 4v16M3 8h4m10 0h4M3 12h18m-6 4h6m-6 4h6"></path></svg>
                     <p className="text-lg font-semibold mb-2">Welcome to MedPub!</p>
@@ -1010,7 +900,7 @@ const App: React.FC = () => {
             )}
         </div>
       </main>
-       {/* Suggestion: Add a button here or in the header to toggle the sidebar collapse state */}
+       {}
     </div>
   );
 };

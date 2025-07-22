@@ -120,7 +120,12 @@ class ExplainTextRequest(BaseModel):
 class QueryDocRequest(BaseModel):
     question: str
     document_id: str
-    
+
+class ChatRequest(BaseModel):
+    question: str
+    chat_history: Optional[List[Dict[str, str]]] = None  # List of {"human": "...", "ai": "..."}
+    filenames: Optional[List[str]] = None
+
 class SynthesizeRequest(BaseModel):
     filenames: List[str]
     synthesis_type: Optional[str] = "comparison"  # comparison, evolution, consensus, methods
@@ -350,68 +355,82 @@ async def delete_file(request: DeleteRequest):
 @app.post("/query")
 async def query_papers(request: QueryRequest):
     """
-    Query the uploaded papers using RAG
+    Single-turn QA query (for backward compatibility)
     """
-    logger.info(f"Received query request: {request.model_dump_json()}")
-    query = request.query
-    filenames = request.filenames
+    logger.info(f"Received QA query request: {request.query}")
     
-    if not filenames:
+    if not request.filenames:
         raise HTTPException(status_code=400, detail="No papers specified for query")
         
-    # The RAGEngine is already initialized globally and attempts to load the index on startup.
-    # The setup_qa_chain method is now called within the query method if needed.
-    # We no longer need to recreate the vector store here for each query.
-
-    # Instead of gathering documents here, the RAGEngine's retriever will use the
-    # globally loaded/updated vector store which contains data from all processed docs.
-    # However, the RAGEngine query method currently doesn't filter by filename. 
-    # To implement multi-document querying where the query is scoped to selected files,
-    # we would need to either: 
-    # 1. Pass the selected filenames to the RAGEngine.query method and modify it
-    #    to filter the retrieval by source filename metadata.
-    # 2. Create a temporary filtered vector store for each query based on selected files.
-    # Approach 1 is generally more efficient.
-
-    # For now, the RAGEngine.query method will query against the index of ALL uploaded documents.
-    # We will update the RAGEngine query method later to filter by filenames if needed for true multi-doc querying.
-
-    # Ensure the RAGEngine is initialized and attempts to load the vector store
-    # The query method itself now handles calling setup_qa_chain.
-    # No need to explicitly call setup_qa_chain here.
-
-    # The filenames are used by the frontend to indicate context, 
-    # but the current RAGEngine queries the combined index.
-    # TODO: Enhance RAGEngine.query to use the filenames list for retrieval filtering.
-
-    logger.info(f"Querying with filenames: {filenames}. Using global vector store.")
-    
-    # Explicitly invoke the chain and process the output
     try:
-        chain_output = await rage_engine.qa_chain.ainvoke({"question": query})
+        # Use the updated query method
+        result = await rage_engine.query(request.query)
+        return {"message": result["answer"], "sources": result["sources"]}
         
-        # The answer is in chain_output['answer'], sources are in chain_output['source_documents']
-
-        response_answer = chain_output.get("answer", "Could not find an answer.")
-        response_sources = [
-            {
-                "content": doc.page_content,
-                "metadata": doc.metadata
-            }
-            for doc in chain_output.get("source_documents", [])
-        ]
-        
-        return {"message": response_answer, "sources": response_sources}
-
     except Exception as e:
-        logger.error(f"Error during RAG query: {e}")
-        # If QA chain is not initialized (e.g., no documents processed and index loading failed),
-        # the above ainvoke call would fail. Catching it here and returning a specific message.
+        logger.error(f"Error during QA query: {e}")
         if not rage_engine.qa_chain:
-             raise HTTPException(status_code=503, detail="RAG system not ready. Please upload and process a document.")
+            raise HTTPException(status_code=503, detail="RAG system not ready. Please upload and process a document.")
         else:
-             # Re-raise other exceptions
-             raise HTTPException(status_code=500, detail=f"Error during RAG query: {e}")
+            raise HTTPException(status_code=500, detail=f"Error during RAG query: {e}")
+
+@app.post("/chat")
+async def chat_with_documents(request: ChatRequest):
+    """
+    Multi-turn conversational chat with RAG
+    """
+    logger.info(f"Received chat request: {request.question}")
+    
+    if not request.filenames:
+        logger.warning("No filenames specified, using all available documents")
+        # Use all available documents if none specified
+        request.filenames = list(processed_documents.keys())
+    
+    try:
+        # Combine documents from all selected files
+        all_documents = []
+        for filename in request.filenames:
+            if filename in processed_documents:
+                all_documents.extend(processed_documents[filename])
+            else:
+                logger.warning(f"Document not found: {filename}")
+        
+        if not all_documents:
+            raise HTTPException(
+                status_code=400,
+                detail="No valid documents found for chat context"
+            )
+        
+        # Update RAG engine with combined documents
+        rage_engine.create_vector_store_from_documents(all_documents)
+        
+        # Use the chat method
+        result = await rage_engine.chat(request.question, request.chat_history)
+        
+        return {
+            "answer": result["answer"],
+            "sources": result["sources"],
+            "chat_history": result["chat_history"]
+        }
+        
+    except Exception as e:
+        logger.error(f"Error during chat: {e}")
+        if not rage_engine.chat_chain:
+            raise HTTPException(status_code=503, detail="Chat system not ready. Please upload and process a document.")
+        else:
+            raise HTTPException(status_code=500, detail=f"Error during chat: {e}")
+
+@app.post("/chat/clear")
+async def clear_chat_history():
+    """
+    Clear the conversation history
+    """
+    try:
+        rage_engine.clear_memory()
+        return {"message": "Chat history cleared successfully"}
+    except Exception as e:
+        logger.error(f"Error clearing chat history: {e}")
+        raise HTTPException(status_code=500, detail=f"Error clearing chat history: {e}")
 
 @app.post("/explanation")
 async def get_sentence_explanation(request: ExplanationRequest):
