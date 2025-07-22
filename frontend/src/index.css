@@ -5,7 +5,6 @@
 
   color-scheme: light dark;
   color: rgba(255, 255, 255, 0.87);
-  /* background-color: #242424; */ /* Remove or comment out this default */
 
   font-synthesis: none;
   text-rendering: optimizeLegibility;
@@ -28,13 +27,13 @@ body {
   place-items: center;
   min-width: 320px;
   min-height: 100vh;
-  background-color: #ffffff; /* Explicitly set body background to white */
+  background-color: #ffffff; /* Sets body background to white. */
 }
 
 #root {
-  background-color: #ffffff; /* Explicitly set root div background to white */
-  width: 100%; /* Ensure root takes full width */
-  height: 100%; /* Ensure root takes full height */
+  background-color: #ffffff; /* Sets root div background to white. */
+  width: 100%; /* Ensures root takes full width. */
+  height: 100%; /* Ensures root takes full height. */
 }
 
 h1 {

@@ -2,7 +2,7 @@ from typing import List, Dict, Any, Optional
 import os
 from langchain_openai import OpenAIEmbeddings, ChatOpenAI
 from langchain_community.vectorstores import FAISS
-from langchain.chains import ConversationalRetrievalChain  # Proper conversational chain
+from langchain.chains import ConversationalRetrievalChain  
 from langchain.memory import ConversationBufferMemory, ConversationSummaryBufferMemory
 from langchain_core.documents import Document
 from langchain_core.prompts import ChatPromptTemplate, PromptTemplate
@@ -18,27 +18,25 @@ from functools import wraps
 import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
 
-# Suppress tokenizer parallelism warnings
+# Suppress tokenizer parallelism warnings.
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
-# Configure logging
+# Configure logging.
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 load_dotenv()
 
-# Optimized batch configuration
+# batch configuration
 BATCH_SIZE = 16  
 RATE_LIMIT_CALLS_PER_MINUTE = 50
 
 def rate_limit(calls_per_minute=RATE_LIMIT_CALLS_PER_MINUTE):
-    """Rate limiting decorator"""
     def decorator(func):
         last_called = [0.0]
         
         @wraps(func)
         async def wrapper(*args, **kwargs):
-            # Calculate time to wait
             elapsed = time.time() - last_called[0]
             time_between_calls = 60.0 / calls_per_minute
             
@@ -60,8 +58,6 @@ async def retry_with_exponential_backoff(
     *args,
     **kwargs
 ):
-    """Retry function with exponential backoff"""
-    # Ensure max_retries is an integer
     if not isinstance(max_retries, int):
         raise TypeError("max_retries must be an integer")
     
@@ -73,7 +69,7 @@ async def retry_with_exponential_backoff(
             if attempt == max_retries:
                 raise e
             
-            # Only backoff on rate limit errors
+            # Only backoff on rate limit errors.
             if "429" in str(e) or "rate limit" in str(e).lower():
                 delay = initial_delay * (backoff_factor ** attempt)
                 elapsed = time.time() - start_time
@@ -88,7 +84,7 @@ class RAGEngine:
         if not api_key:
             raise ValueError("OPENAI_API_KEY environment variable is not set")
             
-        # Initialize OpenAI client 
+        # Initialize OpenAI client.
         self.openai_client = AsyncOpenAI(api_key=api_key)
         
         try:
@@ -99,15 +95,15 @@ class RAGEngine:
             
         self.vector_store = None
         self.qa_chain = None
-        self.chat_chain = None  # Separate chat chain for conversations
+        self.chat_chain = None  
         
-        # Enhanced memory for conversations with buffer management
+        # Memory for conversations.
         self.memory = ConversationSummaryBufferMemory(
             llm=ChatOpenAI(temperature=0, model="gpt-3.5-turbo"),
             memory_key="chat_history",
             return_messages=True,
             output_key="answer",
-            max_token_limit=1000  # Prevent memory from growing too large
+            max_token_limit=1000  
         )
         
         self.faiss_index_path = "faiss_index"
@@ -150,7 +146,7 @@ class RAGEngine:
             raise
 
     async def _create_vector_store_async(self, documents: List[Document]):
-        """Helper method to create vector store asynchronously with optimized batching"""
+        """Helper to create vector store asynchronously with optimized batching."""
         if len(documents) > BATCH_SIZE:
             logger.info(f"Processing {len(documents)} documents in {len(documents) // BATCH_SIZE + 1} batches")
             
@@ -177,7 +173,7 @@ class RAGEngine:
                 except Exception as e:
                     if "429" in str(e):
                         logger.warning(f"Rate limit hit on batch {i // BATCH_SIZE + 1}, retrying...")
-                        raise  # Let retry_with_exponential_backoff handle it
+                        raise  # Retry_with_exponential_backoff handles this.
                     raise
             
             return vector_store
@@ -185,7 +181,7 @@ class RAGEngine:
             return FAISS.from_documents(documents, self.embeddings)
 
     def create_vector_store_from_documents(self, documents: List[Document]):
-        """Create a FAISS vector store from a list of Langchain Document objects"""
+        """Creates a FAISS vector store from a list of Langchain Document objects."""
         if not documents:
             raise ValueError("Cannot create vector store from empty documents list.")
 
@@ -193,10 +189,10 @@ class RAGEngine:
             logger.info(f"Processing {len(documents)} documents in batches of {BATCH_SIZE}")
             start_time = time.time()
             
-            # Check if we already have a vector store
+            # Checks if a vector store already exists.
             if self.vector_store:
                 logger.info("Updating existing vector store")
-                # Process documents in batches
+                # Processes documents in batches.
                 for i in range(0, len(documents), BATCH_SIZE):
                     batch = documents[i:i + BATCH_SIZE]
                     batch_start = time.time()
@@ -271,18 +267,18 @@ class RAGEngine:
             self.vector_store = None
 
     def setup_qa_chain(self):
-        """Set up the single-turn QA chain (for backward compatibility)"""
+        """Sets up the single-turn QA chain."""
         if not self.vector_store:
             self.load_vector_store()
             if not self.vector_store:
                 return
 
         try:
-            # Create simple retrieval chain using LCEL for single-turn QA
+            # Creates simple retrieval chain using LCEL for single-turn QA.
             llm = ChatOpenAI(temperature=0.3, model="gpt-3.5-turbo")
             retriever = self.vector_store.as_retriever(search_kwargs={"k": 4})
             
-            # Create QA prompt
+            # Creates QA prompt.
             qa_prompt = PromptTemplate(
                 template="""You are a helpful medical research assistant. Use the following context to answer the question. If you don't know the answer based on the context, say so.
 
@@ -294,7 +290,7 @@ Answer:""",
                 input_variables=["context", "question"]
             )
             
-            # Build chain using LCEL
+            # Builds chain using LCEL.
             def format_docs(docs):
                 return "\n\n".join([d.page_content for d in docs])
             
@@ -315,30 +311,30 @@ Answer:""",
             raise
 
     def setup_chat_chain(self):
-        """Set up the conversational RAG chain for multi-turn chat"""
+        """Sets up the conversational RAG chain for multi-turn chat."""
         if not self.vector_store:
             self.load_vector_store()
             if not self.vector_store:
                 return
 
         try:
-            # Create the language model
+            # Creates the language model.
             llm = ChatOpenAI(
                 temperature=0.3,
                 model="gpt-3.5-turbo",
-                streaming=True  # Enable streaming for better chat experience
+                streaming=True  
             )
 
-            # Create retriever with optimized search parameters
+            # Creates retriever with optimized search parameters.
             retriever = self.vector_store.as_retriever(
-                search_type="similarity_score_threshold",  # Use score threshold for better precision
+                search_type="similarity_score_threshold", 
                 search_kwargs={
-                    "k": 3,  # Reduced for faster, more focused responses
-                    "score_threshold": 0.5  # Only include relevant matches
+                    "k": 3,  
+                    "score_threshold": 0.5  
                 }
             )
 
-            # Create custom prompt for conversational RAG
+            # Creates custom prompt for conversational RAG.
             chat_prompt = PromptTemplate(
                 template="""You are a helpful medical research assistant engaged in a conversation. Use the following context from medical papers to answer the question, but also consider the conversation history.
 
@@ -375,7 +371,7 @@ Answer:""",
             raise
 
     async def query(self, question: str) -> Dict[str, Any]:
-        """Single-turn QA query (backward compatibility)"""
+        """Single-turn QA query."""
         if not self.qa_chain:
             try:
                 self.setup_qa_chain()
@@ -395,17 +391,17 @@ Answer:""",
         try:
             result = await self.qa_chain.ainvoke({"question": question})
             
-            # For LCEL chain, result is just the answer string
+            # LCEL chain result is the answer string.
             return {
                 "answer": result,
-                "sources": []  # LCEL chain doesn't return sources by default
+                "sources": [] 
             }
         except Exception as e:
             logger.error(f"Error in RAG query: {e}")
             raise
 
     async def chat(self, question: str, chat_history: Optional[List[Dict]] = None) -> Dict[str, Any]:
-        """Multi-turn conversational chat with memory"""
+        """Multi-turn conversational chat with memory."""
         if not self.chat_chain:
             try:
                 self.setup_chat_chain()
@@ -425,23 +421,23 @@ Answer:""",
             }
 
         try:
-            # If external chat history is provided, we can optionally inject it
-            # For now, rely on the internal memory
+            # If external chat history is provided, it can be optionally injected.
+            # Relies on internal memory
             
             result = await self.chat_chain.ainvoke({"question": question})
             
-            # Extract information from the result
+            # Extracts information from the result.
             answer = result.get("answer", "")
             source_documents = result.get("source_documents", [])
             
-            # Calculate similarity scores for source documents
+            # Calculates similarity scores for source documents.
             source_similarities = []
             for doc in source_documents:
-                # Get embeddings for the answer and document
+                # Gets embeddings for the answer and document.
                 answer_embedding = await self.embeddings.aembed_query(answer)
                 doc_embedding = await self.embeddings.aembed_query(doc.page_content)
                 
-                # Calculate cosine similarity
+                # Calculates cosine similarity.
                 similarity = float(cosine_similarity(
                     np.array(answer_embedding).reshape(1, -1),
                     np.array(doc_embedding).reshape(1, -1)
@@ -451,12 +447,12 @@ Answer:""",
             
             # Sort by similarity and get top sources
             source_similarities.sort(key=lambda x: x[1], reverse=True)
-            top_sources = source_similarities[:3]  # Limit to top 3 most relevant sources
+            top_sources = source_similarities[:3]  # Limits to top 3
             
-            # Format sources with similarity scores and metadata
+            # Formats sources with similarity scores and metadata.
             sources = []
             for doc, similarity in top_sources:
-                # Extract a relevant snippet (about 200 chars around the most similar part)
+                # Extracts a relevant snippet
                 content = doc.page_content
                 if len(content) > 200:
                     start = max(0, len(content)//2 - 100)
@@ -472,7 +468,7 @@ Answer:""",
                     "page": doc.metadata.get("page", "Unknown")
                 })
             
-            # Get current chat history from memory
+            # Gets current chat history from memory.
             chat_history = []
             if hasattr(self.memory, 'chat_memory') and hasattr(self.memory.chat_memory, 'messages'):
                 messages = self.memory.chat_memory.messages
@@ -499,7 +495,7 @@ Answer:""",
             self.memory.clear()
             logger.info("Conversation memory cleared")
 
-    @rate_limit(calls_per_minute=30)  # Conservative rate limiting
+    @rate_limit(calls_per_minute=30)  
     async def _make_chat_completion(self, model_name: str, messages: List[Dict], temperature: float = 0.3):
         """Make a rate-limited chat completion request"""
         return await retry_with_exponential_backoff(
@@ -511,7 +507,7 @@ Answer:""",
 
     async def summarize_paper(self, chunks: List[str]) -> Dict[str, Any]:
         """
-        Generate a summary of the paper using GPT with rate limiting
+        Generates a summary of the paper using GPT.
         """
         if not chunks:
             return {
@@ -522,7 +518,7 @@ Answer:""",
         try:
             full_text = "\n".join(chunks)
             
-            max_prompt_length = 12000  # Reduced to be more conservative
+            max_prompt_length = 12000  
             if len(full_text) > max_prompt_length:
                 full_text = full_text[:max_prompt_length] + "\n... [Content truncated] ..."
 
@@ -562,7 +558,7 @@ Paper content:
                     logger.warning(f"Failed to use model {model_name}: {e}")
                     last_error = e
                     
-                    # Add extra delay if it's a rate limit error
+                    # Adds extra delay if it's a rate limit error.
                     if "429" in str(e):
                         logger.info("Rate limit detected, waiting extra time before next model...")
                         await asyncio.sleep(5)

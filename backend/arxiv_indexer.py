@@ -10,15 +10,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 def build_faiss_index(dataframe: pd.DataFrame) -> Tuple[faiss.IndexFlatIP, pd.DataFrame]:
-    """
-    Build a FAISS similarity index from arXiv metadata DataFrame.
-    
-    Args:
-        dataframe: DataFrame with 'title' and 'abstract' columns
-        
-    Returns:
-        Tuple of (FAISS index, metadata DataFrame with same order as index)
-    """
+    """Builds a FAISS similarity index from an arXiv metadata DataFrame."""
     
     if dataframe.empty:
         logger.warning("Empty DataFrame provided")
@@ -84,19 +76,7 @@ def search_similar_papers(index: faiss.IndexFlatIP,
                          query_text: str, 
                          model: SentenceTransformer = None, 
                          k: int = 10) -> pd.DataFrame:
-    """
-    Search for similar papers using the FAISS index.
-    
-    Args:
-        index: FAISS index
-        metadata_df: DataFrame with paper metadata
-        query_text: Text to search for similar papers
-        model: Optional pre-loaded SentenceTransformer model
-        k: Number of similar papers to return
-        
-    Returns:
-        DataFrame with similar papers and similarity scores
-    """
+    """Searches for similar papers using the FAISS index."""
     
     if model is None:
         logger.info("Loading SentenceTransformer model for search...")

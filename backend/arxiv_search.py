@@ -53,9 +53,7 @@ arxiv_state = ArxivSearchState()
 router = APIRouter(prefix="/arxiv", tags=["arxiv"])
 
 async def initialize_arxiv_search():
-    """
-    Initialize arXiv search system by loading metadata and building FAISS index
-    """
+    """Initializes the arXiv search system."""
     global arxiv_state
     
     with arxiv_state.lock:
@@ -105,9 +103,7 @@ async def initialize_arxiv_search():
 
 @router.post("/search", response_model=ArxivSearchResponse)
 async def search_arxiv_papers(request: ArxivSearchRequest):
-    """
-    Search for similar arXiv papers using semantic similarity
-    """
+    """Searches for similar arXiv papers using semantic similarity."""
     logger.info(f"ArXiv search request: '{request.query}' (limit: {request.limit})")
     
     # Check if system is initialized
@@ -169,9 +165,7 @@ async def search_arxiv_papers(request: ArxivSearchRequest):
 
 @router.get("/status", response_model=ArxivStatusResponse)
 async def get_arxiv_status():
-    """
-    Get the current status of the arXiv search system
-    """
+    """Gets the current status of the arXiv search system."""
     return ArxivStatusResponse(
         status="ready" if arxiv_state.is_initialized else ("loading" if arxiv_state.is_loading else "not_initialized"),
         total_papers=arxiv_state.total_papers,
@@ -181,9 +175,7 @@ async def get_arxiv_status():
 
 @router.post("/initialize")
 async def trigger_initialization(background_tasks: BackgroundTasks):
-    """
-    Manually trigger arXiv search initialization (for admin use)
-    """
+    """Manually triggers arXiv search initialization."""
     if arxiv_state.is_initialized:
         return {"message": "ArXiv search already initialized"}
     
@@ -197,10 +189,7 @@ async def trigger_initialization(background_tasks: BackgroundTasks):
 
 # Function to be called during FastAPI startup
 async def startup_arxiv_search():
-    """
-    Startup function to initialize arXiv search system
-    Call this from your main FastAPI app's startup event
-    """
+    """Startup function to initialize arXiv search system."""
     logger.info("Starting arXiv search initialization during app startup...")
     
     # Run initialization in background to avoid blocking app startup

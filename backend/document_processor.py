@@ -25,9 +25,7 @@ class DocumentProcessor:
             raise
 
     def extract_metadata(self, pdf_path: str) -> Dict[str, Any]:
-        """
-        Extract metadata from PDF file
-        """
+        """Extracts metadata from a PDF file."""
         if not os.path.exists(pdf_path):
             logger.error(f"PDF file not found: {pdf_path}")
             raise FileNotFoundError(f"PDF file not found: {pdf_path}")
@@ -50,15 +48,13 @@ class DocumentProcessor:
             raise
 
     def process_pdf(self, pdf_path: str) -> List[Document]:
-        """
-        Process a PDF file and return chunks as Langchain Document objects with metadata
-        """
+        """Processes a PDF file and returns chunks as Langchain Document objects with metadata."""
         if not os.path.exists(pdf_path):
             logger.error(f"PDF file not found: {pdf_path}")
             raise FileNotFoundError(f"PDF file not found: {pdf_path}")
             
         try:
-            # Load PDF using PDFPlumberLoader
+            # Loads PDF using PDFPlumberLoader.
             logger.info(f"Loading PDF file: {pdf_path}")
             loader = PDFPlumberLoader(pdf_path)
             pages = loader.load()
@@ -69,7 +65,7 @@ class DocumentProcessor:
                 
             logger.info(f"Successfully loaded {len(pages)} pages from {pdf_path}")
             
-            # Split text into chunks (Langchain Documents)
+            # Splits text into chunks (Langchain Documents).
             logger.info("Splitting text into chunks...")
             lc_documents = self.text_splitter.split_documents(pages)
             
@@ -79,7 +75,7 @@ class DocumentProcessor:
                 
             logger.info(f"Created {len(lc_documents)} chunks")
             
-            # Extract metadata and add to each document
+            # Extracts metadata and adds to each document.
             try:
                 metadata = self.extract_metadata(pdf_path)
                 logger.info("Successfully extracted metadata")
@@ -97,9 +93,7 @@ class DocumentProcessor:
             raise
 
     def get_chunk_with_context(self, chunks: List[str], chunk_index: int, context_size: int = 2) -> str:
-        """
-        Get a chunk with surrounding context
-        """
+        """Gets a chunk with surrounding context."""
         if not chunks:
             logger.warning("No chunks provided for context retrieval")
             return ""

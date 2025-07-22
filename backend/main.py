@@ -19,15 +19,15 @@ from document_processor import DocumentProcessor
 from rag_engine import RAGEngine
 from enhanced_document_processor import EnhancedDocumentProcessor
 from llm_services import LLMService
-from langchain_core.documents import Document # Import Document
-from langchain_community.document_loaders import PyMuPDFLoader # Updated import
+from langchain_core.documents import Document 
+from langchain_community.document_loaders import PyMuPDFLoader 
 from arxiv_search import router as arxiv_router, startup_arxiv_search
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Print debug information
+# Debugging information.
 logger.info(f"Python path: {sys.path}")
 logger.info(f"Current working directory: {os.getcwd()}")
 try:
@@ -36,11 +36,11 @@ try:
 except ImportError as e:
     logger.error(f"Failed to import fitz: {e}")
 
-# Load environment variables with .env taking precedence
-load_dotenv(override=True)  # This ensures .env overrides shell variables
+# Load environment var
+load_dotenv(override=True)  
 
-# Update ARXIV_LOAD_LIMIT to 1000
-os.environ["ARXIV_LOAD_LIMIT"] = "1000"
+# Update ARXIV_LOAD_LIMIT to 100000
+os.environ["ARXIV_LOAD_LIMIT"] = "100000"
 
 # Verify OpenAI API key is set
 api_key = os.getenv("OPENAI_API_KEY")
@@ -49,7 +49,7 @@ if not api_key:
     logger.error("Please set the OPENAI_API_KEY in your .env file")
     raise ValueError("OPENAI_API_KEY environment variable is not set")
 else:
-    # Only show first and last 4 characters of the key for security
+    # Only show first and last 4 char
     key_preview = f"{api_key[:4]}...{api_key[-4:]}"
     logger.info(f"OpenAI API Key loaded successfully (format: {key_preview})")
     logger.info(f"API Key length: {len(api_key)} characters")
@@ -143,9 +143,7 @@ async def root():
 
 @app.get("/files/{filename}")
 async def serve_pdf(filename: str):
-    """
-    Serve PDF files from the uploads directory
-    """
+    """Serves PDF files from the uploads directory."""
     file_path = os.path.join(UPLOAD_DIR, filename)
     
     if not os.path.exists(file_path):
@@ -168,19 +166,17 @@ async def serve_pdf(filename: str):
 
 @app.post("/upload")
 async def upload_pdf(file: UploadFile = File(...)):
-    """
-    Upload a PDF file for processing
-    """
+    """Uploads a PDF file for processing."""
     if not file.filename.endswith('.pdf'):
         logger.warning(f"Invalid file type attempted: {file.filename}")
         raise HTTPException(status_code=400, detail="Only PDF files are allowed")
     
-    # Create a unique filename
+    # Creates a unique filename.
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     filename = f"{timestamp}_{file.filename}"
     file_path = os.path.join(UPLOAD_DIR, filename)
     
-    # Save the file
+    # Saves the file.
     try:
         contents = await file.read()
         with open(file_path, "wb") as f:
@@ -190,7 +186,7 @@ async def upload_pdf(file: UploadFile = File(...)):
         logger.error(f"Error saving file {filename}: {e}")
         raise HTTPException(status_code=500, detail=f"Error saving file: {str(e)}")
     
-    # Process the file into Langchain Documents
+    # Processes the file into Langchain Documents.
     try:
         logger.info(f"Processing file: {filename}")
         # Use enhanced processor for better chunking and section detection
@@ -202,12 +198,12 @@ async def upload_pdf(file: UploadFile = File(...)):
             
         logger.info(f"Successfully processed {len(lc_documents)} chunks from {filename}")
         
-        # Store processed documents and section information
+        # Stores processed documents and section information.
         processed_documents[filename] = lc_documents
         document_sections[filename] = doc_info
         
-        # Extract topics for clustering
-        full_text = '\n'.join([doc.page_content for doc in lc_documents[:5]])  # Use first 5 chunks
+        # Extracts topics for clustering.
+        full_text = '\n'.join([doc.page_content for doc in lc_documents[:5]])  # Uses first 5 chunks.
         topics = await llm_service.extract_key_topics(full_text)
         doc_info['topics'] = topics
         
@@ -227,7 +223,7 @@ async def upload_pdf(file: UploadFile = File(...)):
             
         except Exception as e:
             logger.error(f"Error updating vector store: {e}")
-            # Even if vector store update fails, we keep the processed documents
+            # Even if vector store update fails, processed documents are kept.
             return {
                 "filename": filename,
                 "message": "File uploaded and processed, but vector store update failed. Some features may be limited.",
@@ -236,7 +232,7 @@ async def upload_pdf(file: UploadFile = File(...)):
             
     except Exception as e:
         logger.error(f"Error processing PDF {filename}: {e}")
-        # Clean up the uploaded file if processing fails
+        # Cleans up the uploaded file if processing fails.
         try:
             os.remove(file_path)
             logger.info(f"Cleaned up {file_path} after processing error")
@@ -247,9 +243,7 @@ async def upload_pdf(file: UploadFile = File(...)):
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
-    """
-    WebSocket endpoint for real-time communication
-    """
+    """WebSocket endpoint for real-time communication."""
     await websocket.accept()
     try:
         while True:
@@ -264,9 +258,7 @@ async def websocket_endpoint(websocket: WebSocket):
 
 @app.post("/summarize")
 async def summarize_paper(request: SummarizeRequest):
-    """
-    Summarize a specific paper with audience-specific formatting
-    """
+    """Summarizes a specific paper with audience-specific formatting."""
     logger.info(f"Received summarize request for file: {request.filename}, audience: {request.audience_type}")
     filename = request.filename
     
@@ -282,10 +274,10 @@ async def summarize_paper(request: SummarizeRequest):
         raise HTTPException(status_code=400, detail="No content available for summarization")
     
     try:
-        # Get sections if available
+        # Gets sections if available.
         sections = doc_info.get('sections', {})
         
-        # Use LLM service for audience-specific summary
+        # Uses LLM service for audience-specific summary.
         chunks_text = [doc.page_content for doc in document_chunks]
         full_text = '\n'.join(chunks_text)
         
@@ -307,9 +299,7 @@ async def summarize_paper(request: SummarizeRequest):
 
 @app.post("/delete_file")
 async def delete_file(request: DeleteRequest):
-    """
-    Delete a specific uploaded file
-    """
+    """Deletes a specific uploaded file."""
     logger.info(f"Received delete request for file: {request.filename}")
     filename = request.filename
     file_path = os.path.join(UPLOAD_DIR, filename)
@@ -322,12 +312,12 @@ async def delete_file(request: DeleteRequest):
         os.remove(file_path)
         logger.info(f"File deleted successfully: {file_path}")
         
-        # Remove from processed documents
+        # Removes from processed documents.
         if filename in processed_documents:
             del processed_documents[filename]
             logger.info(f"Removed {filename} from processed documents")
             
-        # Update vector store after deletion with rate limiting
+        # Updates vector store after deletion with rate limiting.
         try:
             all_processed_documents = []
             for doc_list in processed_documents.values():
@@ -354,16 +344,14 @@ async def delete_file(request: DeleteRequest):
 
 @app.post("/query")
 async def query_papers(request: QueryRequest):
-    """
-    Single-turn QA query (for backward compatibility)
-    """
+    """Performs a single-turn QA query."""
     logger.info(f"Received QA query request: {request.query}")
     
     if not request.filenames:
         raise HTTPException(status_code=400, detail="No papers specified for query")
         
     try:
-        # Use the updated query method
+        # Uses the updated query method.
         result = await rage_engine.query(request.query)
         return {"message": result["answer"], "sources": result["sources"]}
         
@@ -376,14 +364,12 @@ async def query_papers(request: QueryRequest):
 
 @app.post("/chat")
 async def chat_with_documents(request: ChatRequest):
-    """
-    Multi-turn conversational chat with RAG
-    """
+    """Performs multi-turn conversational chat with RAG."""
     logger.info(f"Received chat request: {request.question}")
     
     if not request.filenames:
         logger.warning("No filenames specified, using all available documents")
-        # Use all available documents if none specified
+        # Uses all available documents if none specified.
         request.filenames = list(processed_documents.keys())
     
     try:
@@ -422,9 +408,7 @@ async def chat_with_documents(request: ChatRequest):
 
 @app.post("/chat/clear")
 async def clear_chat_history():
-    """
-    Clear the conversation history
-    """
+    """Clears the conversation history."""
     try:
         rage_engine.clear_memory()
         return {"message": "Chat history cleared successfully"}
@@ -434,9 +418,7 @@ async def clear_chat_history():
 
 @app.post("/explanation")
 async def get_sentence_explanation(request: ExplanationRequest):
-    """
-    Get source passages and confidence scores for a specific sentence in the summary
-    """
+    """Gets source passages and confidence scores for a specific sentence."""
     logger.info(f"Received explanation request for sentence in file: {request.filename}")
     filename = request.filename
     
@@ -482,22 +464,20 @@ async def get_sentence_explanation(request: ExplanationRequest):
 
 @app.post("/query-doc")
 async def query_document(request: QueryDocRequest):
-    """
-    Query a specific document with citations to source sections
-    """
+    """Queries a specific document with citations to source sections."""
     logger.info(f"Query document request: {request.question} for {request.document_id}")
     
     if request.document_id not in processed_documents:
         raise HTTPException(status_code=404, detail="Document not found")
     
     try:
-        # Get relevant chunks from the specific document
+        # Gets relevant chunks from the specific document.
         doc_chunks = processed_documents[request.document_id]
         
-        # Use RAG engine to find relevant chunks
+        # Uses RAG engine to find relevant chunks.
         query_embedding = await rage_engine.embeddings.aembed_query(request.question)
         
-        # Calculate similarities and get top chunks
+        # Calculates similarities and gets top chunks.
         similarities = []
         for doc in doc_chunks:
             chunk_embedding = await rage_engine.embeddings.aembed_query(doc.page_content)
@@ -511,11 +491,11 @@ async def query_document(request: QueryDocRequest):
                 "similarity": float(similarity)
             })
         
-        # Get top 5 most relevant chunks
+        # Gets top 5 most relevant chunks.
         similarities.sort(key=lambda x: x["similarity"], reverse=True)
         relevant_chunks = similarities[:5]
         
-        # Generate answer with citations
+        # Generates answer with citations.
         answer_result = await llm_service.answer_with_citations(
             question=request.question,
             relevant_chunks=relevant_chunks
@@ -533,9 +513,7 @@ async def query_document(request: QueryDocRequest):
 
 @app.post("/explain-text")
 async def explain_highlighted_text(request: ExplainTextRequest):
-    """
-    Explain highlighted text based on user question
-    """
+    """Explains highlighted text based on user question."""
     logger.info(f"Explain text request for {request.filename}")
     
     if request.filename not in processed_documents:
@@ -557,9 +535,7 @@ async def explain_highlighted_text(request: ExplainTextRequest):
 
 @app.post("/synthesize-topic")
 async def synthesize_topic(request: SynthesizeRequest):
-    """
-    Synthesize findings across multiple papers
-    """
+    """Synthesizes findings across multiple papers."""
     logger.info(f"Synthesize request for {len(request.filenames)} files")
     
     papers_data = []
@@ -602,9 +578,7 @@ async def synthesize_topic(request: SynthesizeRequest):
 
 @app.get("/document-info/{filename}")
 async def get_document_info(filename: str):
-    """
-    Get detailed information about a processed document
-    """
+    """Gets detailed information about a processed document."""
     if filename not in document_sections:
         raise HTTPException(status_code=404, detail="Document information not found")
     
@@ -621,9 +595,7 @@ async def get_document_info(filename: str):
 
 @app.get("/related-documents/{filename}")
 async def get_related_documents(filename: str):
-    """
-    Get related documents based on similarity to the given document
-    """
+    """Gets related documents based on similarity to the given document."""
     if filename not in processed_documents:
         raise HTTPException(status_code=404, detail="Document not found")
     
@@ -665,9 +637,7 @@ async def get_related_documents(filename: str):
 
 @app.get("/similar-papers/{filename}")
 async def get_similar_papers(filename: str, limit: int = 3):
-    """
-    Get similar arXiv papers for an uploaded PDF
-    """
+    """Gets similar arXiv papers for an uploaded PDF."""
     logger.info(f"Getting similar papers for: {filename}")
     
     if filename not in processed_documents:
@@ -738,9 +708,7 @@ async def get_similar_papers(filename: str, limit: int = 3):
 
 @app.get("/debug-chunks/{filename}")
 async def debug_chunks(filename: str, start_idx: Optional[int] = 0, limit: Optional[int] = 5):
-    """
-    Debug endpoint to inspect document chunks
-    """
+    """Debug endpoint to inspect document chunks."""
     if filename not in processed_documents:
         raise HTTPException(status_code=404, detail="Document not found")
         
@@ -767,9 +735,7 @@ async def debug_chunks(filename: str, start_idx: Optional[int] = 0, limit: Optio
 
 @app.get("/debug-embeddings/{filename}")
 async def debug_embeddings(filename: str, query: Optional[str] = None):
-    """
-    Debug endpoint to inspect embeddings and similarity scores
-    """
+    """Debug endpoint to inspect embeddings and similarity scores."""
     if filename not in processed_documents:
         raise HTTPException(status_code=404, detail="Document not found")
         
@@ -805,9 +771,7 @@ async def debug_embeddings(filename: str, query: Optional[str] = None):
 
 @app.get("/debug-index-health")
 async def check_index_health():
-    """
-    Check FAISS index health and stats
-    """
+    """Checks FAISS index health and stats."""
     if not rage_engine.vector_store:
         raise HTTPException(status_code=400, detail="Vector store not initialized")
         
@@ -841,9 +805,7 @@ async def check_index_health():
 
 @app.post("/debug-retrieval")
 async def debug_retrieval(query: str, k: Optional[int] = 3):
-    """
-    Debug endpoint to inspect retrieval results
-    """
+    """Debug endpoint to inspect retrieval results."""
     if not rage_engine.vector_store:
         raise HTTPException(status_code=400, detail="Vector store not initialized")
         
@@ -877,5 +839,3 @@ if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
 
-# Remove the print statement for faiss version as it's not needed here
-# print(faiss.__version__) 

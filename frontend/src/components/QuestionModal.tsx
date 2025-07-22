@@ -20,14 +20,14 @@ const QuestionModal: React.FC<QuestionModalProps> = ({
   useEffect(() => {
     if (isOpen) {
       setQuestion('');
-      // Focus input after a brief delay to ensure modal is rendered
+      // Focus input after renders
       setTimeout(() => {
         inputRef.current?.focus();
       }, 100);
     }
   }, [isOpen]);
 
-  // Handle escape key to close modal
+  // Handle escape key to close
   useEffect(() => {
     const handleEscape = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {

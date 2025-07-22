@@ -1,15 +1,13 @@
 #!/usr/bin/env python3
-"""
-Download required NLTK data for the MedPub backend
-Run this script once after installing requirements
-"""
+"""Downloads required NLTK data for the MedPub backend."""
+# Run this script once after installing requirements.
 
 import nltk
 import sys
 import os
 
 def download_nltk_data():
-    """Download all required NLTK packages"""
+    """Downloads all required NLTK packages."""
     packages = [
         'punkt',
         'punkt_tab', 

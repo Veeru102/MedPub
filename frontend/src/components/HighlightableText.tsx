@@ -25,7 +25,7 @@ interface TextSegment {
   isNew?: boolean;
 }
 
-// Custom hook for managing text highlights
+// hook for managing text highlights
 const useHighlightText = (originalText: string) => {
   const [highlights, setHighlights] = useState<TextHighlight[]>([]);
 
@@ -189,7 +189,7 @@ const HighlightableText: React.FC<HighlightableTextProps> = ({
     setCurrentContext('');
   }, []);
 
-  // Render a text segment with proper formatting
+  // Renders a text segment with proper formatting.
   const renderTextSegment = useCallback((segment: TextSegment, index: number) => {
     if (segment.isHighlighted) {
       return (
@@ -213,7 +213,7 @@ const HighlightableText: React.FC<HighlightableTextProps> = ({
     return segment.text;
   }, []);
 
-  // Enhanced text formatting function that handles markdown and highlights
+  // Formats text including markdown and highlights.
   const formatText = useCallback((text: string) => {
     if (!text) return '';
 
@@ -238,7 +238,7 @@ const HighlightableText: React.FC<HighlightableTextProps> = ({
         }
       }
 
-      // Handle bullet points (- or * at start)
+      // Handle bullet points - or * starting
       if (trimmedLine.match(/^\s*[\-\*]\s/)) {
         const content = trimmedLine.replace(/^\s*[\-\*]\s/, '').trim();
         return (
@@ -249,7 +249,7 @@ const HighlightableText: React.FC<HighlightableTextProps> = ({
         );
       }
 
-      // Handle numbered lists (1. 2. etc.)
+      // Handle numbered lists 
       if (trimmedLine.match(/^\s*\d+\.\s/)) {
         const number = trimmedLine.match(/^\s*(\d+)\./)?.[1] || '1';
         const content = trimmedLine.replace(/^\s*\d+\.\s/, '').trim();
@@ -270,7 +270,7 @@ const HighlightableText: React.FC<HighlightableTextProps> = ({
     });
   }, [textSegments]);
 
-  // Render text with highlights applied using segments
+  // Renders text with applied highlights.
   const renderTextWithSegments = useCallback((content: React.ReactNode): React.ReactNode => {
     if (typeof content !== 'string') {
       return content;
@@ -307,16 +307,15 @@ const HighlightableText: React.FC<HighlightableTextProps> = ({
     return result;
   }, [textSegments, renderTextSegment]);
 
-  // Format inline text elements (bold, italic, etc.)
+  // Formats inline text elements like bold, italic
   const formatInlineText = useCallback((text: string): string => {
-    // Handle bold text (**text** or __text__)
+  
+    // Handles bold text **text** or __text__
     const boldRegex = /(\*\*|__)(.*?)\1/g;
     let result = text;
     let match;
     
     while ((match = boldRegex.exec(text)) !== null) {
-      // For now, just return the text without bold formatting to keep it simple
-      // The bold formatting can be added back later if needed
       result = result.replace(match[0], match[2]);
     }
     
@@ -381,7 +380,7 @@ const HighlightableText: React.FC<HighlightableTextProps> = ({
         {formatText(text)}
       </div>
 
-      {/* Question Modal */}
+      {/* Question modal */}
       <QuestionModal
         isOpen={showQuestionModal}
         selectedText={currentSelectedText}

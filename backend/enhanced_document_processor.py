@@ -1,4 +1,4 @@
-import fitz  # PyMuPDF
+import fitz  
 from typing import List, Dict, Any, Optional, Tuple
 from langchain_text_splitters import RecursiveCharacterTextSplitter, SentenceTransformersTokenTextSplitter
 from langchain_community.document_loaders import PyMuPDFLoader
@@ -9,18 +9,18 @@ import re
 import nltk
 from nltk.tokenize import sent_tokenize, word_tokenize
 
-# Download required NLTK data
+# Downloads required NLTK data.
 try:
     nltk.data.find('tokenizers/punkt')
 except LookupError:
     nltk.download('punkt')
 
-# Configure logging
+# Configure logging.
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 class EnhancedDocumentProcessor:
-    """Enhanced document processor with sentence-based chunking and section detection"""
+    """Processes documents with enhanced chunking and section detection."""
     
     def __init__(self, 
                  chunk_size: int = 1000, 
@@ -32,7 +32,7 @@ class EnhancedDocumentProcessor:
         self.sentence_chunk_size = sentence_chunk_size
         self.use_sentence_chunking = use_sentence_chunking
         
-        # Initialize text splitters
+        # Initializes text splitters.
         self.char_splitter = RecursiveCharacterTextSplitter(
             chunk_size=chunk_size,
             chunk_overlap=chunk_overlap,
@@ -109,10 +109,7 @@ class EnhancedDocumentProcessor:
         return chunks
     
     def process_pdf_enhanced(self, pdf_path: str) -> Tuple[List[Document], Dict[str, Any]]:
-        """
-        Process PDF with enhanced chunking and section detection
-        Returns: (chunks, document_info)
-        """
+        """Processes PDF with enhanced chunking and section detection."""
         if not os.path.exists(pdf_path):
             raise FileNotFoundError(f"PDF file not found: {pdf_path}")
         
@@ -203,13 +200,13 @@ class EnhancedDocumentProcessor:
             # Try to extract DOI and publication info
             first_page_text = doc[0].get_text() if len(doc) > 0 else ""
             
-            # DOI pattern
+            # DOI pattern.
             doi_pattern = r'(10\.\d{4,}/[-._;()/:\w]+)'
             doi_match = re.search(doi_pattern, first_page_text)
             if doi_match:
                 result['doi'] = doi_match.group(1)
             
-            # Journal pattern (simplified)
+            # Journal pattern.
             journal_patterns = [
                 r'(?:Journal of |J\. )([A-Za-z\s]+)',
                 r'(?:Proceedings of |Proc\. )([A-Za-z\s]+)',
@@ -234,7 +231,7 @@ class EnhancedDocumentProcessor:
         """Find exact citations for a chunk within the source text"""
         citations = []
         
-        # Clean texts for comparison
+        # Cleans texts for comparison
         chunk_clean = chunk_text.strip().lower()
         source_clean = source_text.lower()
         
@@ -242,18 +239,17 @@ class EnhancedDocumentProcessor:
         position = source_clean.find(chunk_clean[:50])  # Use first 50 chars to locate
         
         if position != -1:
-            # Find section
             lines_before = source_text[:position].split('\n')
             section = "Unknown"
             
             # Look backwards for section header
-            for line in reversed(lines_before[-10:]):  # Check last 10 lines
+            for line in reversed(lines_before[-10:]):  
                 for pattern in self.section_patterns:
                     if re.match(pattern, line.strip(), re.IGNORECASE):
                         section = line.strip()
                         break
             
-            # Calculate approximate page (assuming ~3000 chars per page)
+            # Calculate approximate page 
             page_num = position // 3000 + 1
             
             citations.append({

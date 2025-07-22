@@ -14,7 +14,6 @@ const ThemeContext = React.createContext<{
   toggleTheme: () => {},
 });
 
-// Theme provider component
 const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   // Check system preference initially
   const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
@@ -30,7 +29,6 @@ const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ children }) =>
 
   const toggleTheme = () => setIsDark(!isDark);
 
-  // Apply theme class to document
   useEffect(() => {
     document.documentElement.classList.toggle('dark', isDark);
   }, [isDark]);
@@ -42,7 +40,7 @@ const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ children }) =>
   );
 };
 
-// Theme toggle button component
+// Theme toggle button.
 const ThemeToggle: React.FC = () => {
   const { isDark, toggleTheme } = React.useContext(ThemeContext);
   return (
@@ -77,17 +75,16 @@ const ThemeToggle: React.FC = () => {
   );
 };
 
-// Placeholder component for the PDF viewer area - Keep for future use
-// @ts-ignore
+// PDF viewer placeholder.
 const PdfViewerPlaceholder: React.FC = () => (
     <div className="w-full h-96 bg-gray-100 flex items-center justify-center text-gray-500 italic rounded-md border border-dashed border-gray-300">
         PDF Preview Area (Implementation Needed)
-        {/* TODO: Integrate a PDF rendering library like PDF.js here. */}
-        {/* You would fetch the PDF content (or a URL) and render it in this div. */}
+        {}
+        {}
     </div>
 );
 
-// Helper component for the collapsible sidebar - Now displays interactive document cards
+// Sidebar for document management.
 const Sidebar: React.FC<{ files: string[], onSummarize: (filename: string) => void, summaries: Record<string, string>, isCollapsed: boolean, onFileSelect: (filename: string) => void, selectedFiles: string[], onRemoveFile: (filename: string) => void, onToggleCollapse: () => void } > = ({ files, onSummarize, summaries, isCollapsed, onFileSelect, selectedFiles, onRemoveFile, onToggleCollapse }) => (
   <aside className={`flex-shrink-0 ${isCollapsed ? 'w-16' : 'w-80'} bg-zinc-50 dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 h-full transition-width duration-300 overflow-y-auto flex flex-col border-r border-zinc-200 dark:border-zinc-700`}>
     <div className="p-4 border-b border-zinc-200 dark:border-zinc-700 flex items-center justify-between">
@@ -96,7 +93,7 @@ const Sidebar: React.FC<{ files: string[], onSummarize: (filename: string) => vo
           <h2 className="text-xl font-semibold text-zinc-900 dark:text-zinc-100">Documents</h2>
         </div>
       )}
-      {/* Toggle Button */}
+      {/* Toggle button */}
        <button 
           onClick={onToggleCollapse} 
           className="p-1 rounded hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100"
@@ -191,7 +188,7 @@ const Sidebar: React.FC<{ files: string[], onSummarize: (filename: string) => vo
   </aside>
 );
 
-// Helper component for PDF upload area with drag-and-drop
+// PDF upload area.
 const PDFUpload: React.FC<{ onUpload: (file: File) => void, uploading: boolean }> = ({ onUpload, uploading }) => {
   const [isDragOver, setIsDragOver] = useState(false);
   const [selectedFileName, setSelectedFileName] = useState<string | null>(null);
@@ -201,7 +198,8 @@ const PDFUpload: React.FC<{ onUpload: (file: File) => void, uploading: boolean }
       const file = e.target.files[0];
       setSelectedFileName(file.name);
       onUpload(file);
-      e.target.value = ''; // Clear the input after selection
+      // Clear the input after selection
+      e.target.value = ''; 
     }
   };
 
@@ -264,7 +262,7 @@ const PDFUpload: React.FC<{ onUpload: (file: File) => void, uploading: boolean }
   );
 };
 
-// Helper component for AI Summary display
+// AI Summary display component.
 const SummaryDisplay: React.FC<{ summary: string | null, filename: string }> = ({ summary, filename }) => {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [selectedSentence, setSelectedSentence] = useState<string | null>(null);
@@ -275,7 +273,7 @@ const SummaryDisplay: React.FC<{ summary: string | null, filename: string }> = (
   const [showExplanationResult, setShowExplanationResult] = useState(false);
   const [showSourceEvidenceResult, setShowSourceEvidenceResult] = useState(false);
 
-  // Handle question-based highlighting (improved functionality)
+  // Handles text highlighting and fetching explanations.
   const handleTextHighlight = async (selectedText: string, context: string, question: string) => {
     setSelectedSentence(selectedText);
     setLoadingExplanation(true);
@@ -291,13 +289,14 @@ const SummaryDisplay: React.FC<{ summary: string | null, filename: string }> = (
           selected_text: selectedText,
           context,
           question,
-          audience_type: 'patient' // Default to patient for explanations
+          //Default = patient
+          audience_type: 'patient' 
         })
       });
       
       if (!response.ok) throw new Error('Failed to fetch explanation');
       const data = await response.json();
-      setExplanation({ ...data, userQuestion: question }); // Store the user's question
+      setExplanation({ ...data, userQuestion: question }); 
     } catch (error) {
       console.error('Error fetching explanation:', error);
       setExplanation({ 
@@ -309,12 +308,13 @@ const SummaryDisplay: React.FC<{ summary: string | null, filename: string }> = (
     }
   };
 
-  // Handle source evidence highlighting (new functionality)
+  // Handles fetching source evidence for highlighted text.
   const handleSourceEvidence = async (selectedText: string) => {
     setSelectedSentence(selectedText);
     setLoadingSourceEvidence(true);
     setShowSourceEvidenceResult(true);
-    setShowExplanationResult(false); // Hide explanation when showing source evidence
+    
+    setShowExplanationResult(false); 
     
     try {
       const response = await fetch(`${BACKEND_URL}/explanation`, {
@@ -360,7 +360,7 @@ const SummaryDisplay: React.FC<{ summary: string | null, filename: string }> = (
   
   const handleCopyToClipboard = () => {
       navigator.clipboard.writeText(summary).then(() => {
-          alert('Summary copied to clipboard!'); // Suggestion: Use a better toast/notification
+          alert('Summary copied to clipboard!'); 
       }).catch(err => {
           console.error('Failed to copy summary: ', err);
       });
@@ -497,7 +497,7 @@ const SummaryDisplay: React.FC<{ summary: string | null, filename: string }> = (
         </div>
       )}
       
-       {/* Action buttons */}
+       {/* Summary action buttons */}
        <div className="mt-4 flex justify-end">
            <button 
              onClick={handleCopyToClipboard} 
@@ -510,7 +510,7 @@ const SummaryDisplay: React.FC<{ summary: string | null, filename: string }> = (
   );
 };
 
-// Helper component for the Chat interface - Now in a card
+// Chat interface.
 const Chat: React.FC<{ files: string[] }> = ({ files }) => {
   const [messages, setMessages] = useState<{ sender: "user" | "bot", text: string, sources?: any[] }[]>([]);
   const [question, setQuestion] = useState("");
@@ -568,7 +568,7 @@ const Chat: React.FC<{ files: string[] }> = ({ files }) => {
     setLoading(true);
 
     try {
-      // Use the new chat endpoint for conversational RAG
+      // Use the chat endpoint for conversational RAG
       const chatHistory = messages.map(msg => ({
         [msg.sender === "user" ? "human" : "ai"]: msg.text
       }));
@@ -604,11 +604,10 @@ const Chat: React.FC<{ files: string[] }> = ({ files }) => {
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      handleSubmit(e as any); // Cast needed for form submission type
+      handleSubmit(e as any); 
     }
   };
 
-  // More suggested questions for placeholder
   const suggestedQuestions = [
       "What are the key objectives of this paper?",
       "Summarize the methodology used.",
@@ -715,7 +714,8 @@ const App: React.FC = () => {
   const [summaries, setSummaries] = useState<Record<string, string>>({});
   const [selectedFiles, setSelectedFiles] = useState<string[]>([]);
   const [uploading, setUploading] = useState(false);
-  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false); // State for sidebar collapse
+  // State for sidebar collapse
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false); 
   const [selectedAudience, setSelectedAudience] = useState<AudienceType>('clinician');
   const [showPdfViewer, setShowPdfViewer] = useState(false);
   const [relatedDocuments, setRelatedDocuments] = useState<any[]>([]);
@@ -744,15 +744,17 @@ const App: React.FC = () => {
       console.log('Upload successful, response data:', data);
       
       setUploadedFiles((prev) => [...prev, data.filename]);
+
       // Clear summary if file is re-uploaded or new file is uploaded
       setSummaries(prev => { delete prev[data.filename]; return { ...prev }; });
-      setSelectedFiles([data.filename]); // Select the newly uploaded file
+      // Select the newly uploaded file
+      setSelectedFiles([data.filename]); 
       
       // Fetch related documents
       fetchRelatedDocuments(data.filename);
     } catch (err) {
       console.error("Upload error:", err);
-      alert(`Failed to upload PDF: ${err}`); // Suggestion: Use a better notification system
+      alert(`Failed to upload PDF: ${err}`); 
     } finally {
       setUploading(false);
     }
@@ -792,15 +794,13 @@ const App: React.FC = () => {
 
     } catch (err) {
       console.error("Summarization error:", err);
-      setSummaries(prev => ({ ...prev, [filename]: `Summarization failed: ${err}` })); // Keep error message in state
+      setSummaries(prev => ({ ...prev, [filename]: `Summarization failed: ${err}` })); 
     }
   };
 
-   // Placeholder for file removal - needs backend implementation
+   // file removal
   // @ts-ignore
   const handleRemoveFile = async (filename: string) => {
-     // TODO: Implement backend endpoint for file deletion
-     // For now, just remove from frontend state
      try {
          const res = await fetch(`${BACKEND_URL}/delete_file`, {
              method: "POST",
@@ -809,23 +809,17 @@ const App: React.FC = () => {
          });
          if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
 
-         // Remove from frontend state only after successful backend deletion
+         // Remove from frontend state after successful backend deletion.
          setUploadedFiles(prev => prev.filter(file => file !== filename));
          setSummaries(prev => { delete prev[filename]; return { ...prev }; });
          if (selectedFiles.includes(filename)) {
              setSelectedFiles(prev => prev.filter(file => file !== filename));
          }
-         // Also clear the selected file name in the upload box if the deleted file was selected there
-         // This might require passing down a state setter or ref from PDFUpload, 
-         // but for now, we assume setSelectedFiles([]) is sufficient if the file was selected in the list.
-         // If the file was only selected in the upload box via drag/drop without being in the uploadedFiles list, 
-         // we'd need a different mechanism to clear the PDFUpload's internal state.
-         // Let's assume for now that files in the upload box are also added to the uploadedFiles list upon successful upload.
 
-         alert(`File deleted successfully: ${filename}`); // Suggestion: Use a better notification system
+         alert(`File deleted successfully: ${filename}`); 
      } catch (err) {
          console.error("File deletion error:", err);
-         alert(`Failed to delete file: ${err}`); // Suggestion: Use a better notification system
+         alert(`Failed to delete file: ${err}`);
      }
    };
 
@@ -834,7 +828,7 @@ const App: React.FC = () => {
   };
 
   const handleFileSelect = (filename: string) => {
-    // Toggle selection: if already selected, unselect. If not selected, add to selection
+    // Toggle selection
     setSelectedFiles(prev => 
       prev.includes(filename) 
         ? prev.filter(f => f !== filename)
@@ -866,7 +860,6 @@ const App: React.FC = () => {
           </header>
 
           {/* Content area: Upload, Summary, and Chat in a single column */}
-          {/* This outer div manages the vertical stacking and gap */}
           <div className="flex-1 flex flex-col gap-8 overflow-y-auto">
              {/* Upload component always visible */}
              <PDFUpload onUpload={handleUpload} uploading={uploading} />
@@ -880,11 +873,9 @@ const App: React.FC = () => {
                />
              )}
              
-             {/* Container for Summary and Chat, or the Welcome Message */}
-             {/* This container needs to take up the remaining space */} 
+             {/* Container for Summary and Chat*/}
              {selectedFiles.length > 0 ? (
                <div className="flex-1 flex flex-col gap-8">
-                  {/* PDF Viewer Toggle - disabled  */}
                   {false && (
                     <div className="flex justify-between items-center">
                       <button
@@ -920,7 +911,6 @@ const App: React.FC = () => {
                     </div>
                   )}
 
-                  {}
                   {false && showPdfViewer && selectedFiles.length === 1 && (
                     <div className="h-96 border border-gray-300 rounded-lg overflow-hidden">
                       <PDFViewer
@@ -937,20 +927,17 @@ const App: React.FC = () => {
                       backendUrl={BACKEND_URL}
                       onError={(error) => {
                         console.error('Similar papers error:', error);
-                        // Could add toast notification here
                       }}
                     />
                   )}
 
-                  {/* Display summary only if ONE file is selected and summarized */}
+                  {/* Displays summary if one file is selected. */}
                   {selectedFiles.length === 1 && summaries[selectedFiles[0]] && summaries[selectedFiles[0]] !== "Summarizing..." && (
                      <SummaryDisplay 
                        summary={summaries[selectedFiles[0]]} 
                        filename={selectedFiles[0]}
                      />
                   )}
-                   {}
-                  {} 
                   <div className="flex-1 h-full min-h-[400px]">
                      <Chat files={selectedFiles} />{} 
                   </div>

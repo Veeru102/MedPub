@@ -10,14 +10,9 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 def load_arxiv_metadata() -> pd.DataFrame:
-    """
-    Download and parse the arXiv metadata file from Kaggle.
+    """Downloads and parses the arXiv metadata file from Kaggle."""
     
-    Returns:
-        pd.DataFrame: DataFrame containing only 'id', 'title', and 'abstract' columns
-    """
-    
-    # Initialize Kaggle API
+    # Initializes Kaggle API.
     api = KaggleApi()
     api.authenticate()
     
@@ -72,7 +67,7 @@ def load_arxiv_metadata() -> pd.DataFrame:
             available_columns = [col for col in required_columns if col in df.columns]
             result_df = df[available_columns].copy()
             
-            # Clean up any null values
+            # Cleans up any null values.
             result_df = result_df.dropna()
             
             logger.info(f"Returning {len(result_df)} cleaned records with columns: {result_df.columns.tolist()}")

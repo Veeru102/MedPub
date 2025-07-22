@@ -62,7 +62,7 @@ const SimilarPapersBox: React.FC<SimilarPapersBoxProps> = ({
     fetchSimilarPapers();
   }, [filename, backendUrl, onError]);
 
-  // Format filename for display (remove timestamp prefix)
+  // Formats the filename for display.
   const getDisplayFilename = (filename: string) => {
     return filename.replace(/^\d{8}_\d{6}_/, '');
   };

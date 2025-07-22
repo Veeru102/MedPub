@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Document, Page, pdfjs } from 'react-pdf';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 
-// Set up the worker for react-pdf with static file serving
+// Configure react-pdf worker.
 pdfjs.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.js';
 
 interface PDFViewerProps {
@@ -26,12 +26,12 @@ const PDFViewer: React.FC<PDFViewerProps> = ({ filename, backendUrl }) => {
   const [error, setError] = useState<string | null>(null);
   const [documentLoaded, setDocumentLoaded] = useState(false);
 
-  // Construct PDF URLs with fallback options
+  // Construct PDF URLs w fallback options
   const primaryPdfUrl = `${backendUrl}/uploads/${filename}`;
   const fallbackPdfUrl = `${backendUrl}/files/${filename}`;
   const [currentPdfUrl, setCurrentPdfUrl] = useState(primaryPdfUrl);
 
-  // PDF loading options with local asset handling
+  // PDF loading options.
   const pdfOptions = {
     cMapUrl: '/cmaps/',
     cMapPacked: true,
@@ -43,7 +43,7 @@ const PDFViewer: React.FC<PDFViewerProps> = ({ filename, backendUrl }) => {
     },
   };
 
-  // Pre-fetch PDF to validate URL and handle errors with fallback
+  // Validates PDF URL and handles fallbacks.
   useEffect(() => {
     const validatePdf = async (url: string, isFallback: boolean = false) => {
       try {
@@ -88,7 +88,7 @@ const PDFViewer: React.FC<PDFViewerProps> = ({ filename, backendUrl }) => {
     validatePdf(primaryPdfUrl);
   }, [filename, backendUrl, primaryPdfUrl, fallbackPdfUrl]);
 
-  // Fetch document info including sections
+  // Fetches document sections and page count.
   useEffect(() => {
     const fetchDocumentInfo = async () => {
       try {
@@ -106,7 +106,7 @@ const PDFViewer: React.FC<PDFViewerProps> = ({ filename, backendUrl }) => {
         }
       } catch (err) {
         console.error('Error fetching document info:', err);
-        // Continue anyway, PDF might still load
+        // Continue anyways
       }
     };
 
@@ -134,7 +134,7 @@ const PDFViewer: React.FC<PDFViewerProps> = ({ filename, backendUrl }) => {
     setError(`Failed to load page ${currentPage}: ${err.message}`);
   };
 
-  // Navigation functions
+  // Navigation controls.
   const navigateToSection = (sectionPage: number) => setCurrentPage(sectionPage);
   const goToPrevPage = () => setCurrentPage(prev => Math.max(1, prev - 1));
   const goToNextPage = () => setCurrentPage(prev => Math.min(totalPages, prev + 1));
@@ -144,7 +144,7 @@ const PDFViewer: React.FC<PDFViewerProps> = ({ filename, backendUrl }) => {
 
   return (
     <div className="flex h-full bg-gray-100">
-      {/* Section Navigation Sidebar */}
+      {/* Section navigation sidebar */}
       <div className="w-64 bg-white p-4 overflow-y-auto border-r border-gray-300 shadow-sm">
         <h3 className="text-lg font-semibold mb-4 text-gray-800">Sections</h3>
         <ul className="space-y-2">
@@ -165,7 +165,7 @@ const PDFViewer: React.FC<PDFViewerProps> = ({ filename, backendUrl }) => {
           ))}
         </ul>
         
-        {/* Document Info */}
+        {/* Document info display */}
         <div className="mt-6 pt-6 border-t border-gray-200">
           <h4 className="text-sm font-semibold text-gray-700 mb-2">Document Info</h4>
           <p className="text-xs text-gray-600">Total Pages: {totalPages}</p>

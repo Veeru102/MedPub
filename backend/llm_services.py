@@ -33,7 +33,7 @@ def rate_limit(calls_per_minute=30):
     return decorator
 
 class LLMService:
-    """Modular LLM service for various text processing tasks"""
+    """Provides modular LLM services for text processing."""
     
     def __init__(self):
         api_key = os.getenv("OPENAI_API_KEY")
@@ -76,7 +76,7 @@ class LLMService:
             
             structured_text = "\n\n".join(section_summaries)
         else:
-            structured_text = text[:12000]  # Limit text length
+            structured_text = text[:12000]  
         
         prompt = f"""Summarize this medical research paper for a {audience}. {audience_config['style']}
 
@@ -121,7 +121,7 @@ Paper content:
                           context: str,
                           user_question: str,
                           audience: str = "patient") -> Dict[str, Any]:
-        """Explain selected text based on user question"""
+        """Explains selected text based on user question."""
         
         audience_config = self.audience_prompts.get(audience, self.audience_prompts["patient"])
         
