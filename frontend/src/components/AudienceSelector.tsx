@@ -34,11 +34,11 @@ const AudienceSelector: React.FC<AudienceSelectorProps> = ({
   const currentAudience = audiences.find(a => a.value === selectedAudience);
 
   return (
-    <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-3">
-      <div className="flex items-center justify-between mb-2">
-        <h3 className="text-sm font-medium text-gray-700">Summary Style</h3>
-        <span className="text-xs text-gray-500">
-          Current: <span className="font-medium text-blue-600">{currentAudience?.label}</span>
+    <div className="bg-white dark:bg-zinc-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-4">
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="text-sm font-medium text-gray-900 dark:text-gray-100">Summary Style</h3>
+        <span className="text-xs text-gray-600 dark:text-gray-400">
+          Current: <span className="font-medium text-blue-600 dark:text-blue-400">{currentAudience?.label}</span>
         </span>
       </div>
       
@@ -49,16 +49,16 @@ const AudienceSelector: React.FC<AudienceSelectorProps> = ({
             onClick={() => onAudienceChange(audience.value)}
             disabled={disabled}
             className={`
-              flex-1 px-3 py-2 rounded-md border transition-all duration-200 text-sm
+              flex-1 px-4 py-3 rounded-lg border transition-all duration-200 text-sm
               ${selectedAudience === audience.value
-                ? 'border-blue-500 bg-blue-50 text-blue-700'
-                : 'border-gray-200 text-gray-700 hover:border-gray-300 hover:bg-gray-50'
+                ? 'border-blue-500 dark:border-blue-400 bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300'
+                : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:border-gray-300 dark:hover:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700'
               }
               ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}
             `}
           >
             <div className="font-medium">{audience.label}</div>
-            <div className="text-xs text-gray-500 mt-0.5">{audience.description}</div>
+            <div className="text-xs text-gray-600 dark:text-gray-400 mt-1">{audience.description}</div>
           </button>
         ))}
       </div>
