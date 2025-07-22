@@ -958,9 +958,9 @@ const App: React.FC = () => {
                ) : (
                   // Welcome/Instructional Message when no file is selected
                   <div className="flex-1 flex flex-col items-center justify-center text-center text-zinc-600 dark:text-zinc-400 italic p-8 border-2 border-dashed border-zinc-300 dark:border-zinc-600 rounded-lg bg-white dark:bg-zinc-800">
-                      <p className="text-lg font-semibold mb-2">Welcome to MedPub!</p>
+                      <p className="text-2xl font-semibold mb-2">Welcome to MedPub!</p>
                       <p>Upload a medical paper to get started. You can drag and drop a PDF above or click to browse your files.</p>
-                      <p className="mt-4 text-sm">Once uploaded and summarized, you can chat with the document and get AI-powered insights.</p>
+                      <p className="mt-4 text-sm">Once uploaded, MedPub applies natural language understanding to deliver summaries, retrieve similar research, map AI outputs to source text for interpretability, and support real-time contextual Q&A.</p>
                   </div>
               )}
           </div>

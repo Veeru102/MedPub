@@ -1,114 +1,94 @@
 # MedPub: An AI-Powered Medical Research Assistant
 
-MedPub is an advanced web application designed to empower medical researchers and clinicians by streamlining the process of literature review and knowledge extraction from PDF-based research papers. Leveraging cutting-edge AI and machine learning, MedPub facilitates intelligent document ingestion, contextual summarization, and interactive, multi-document querying, significantly enhancing research efficiency and insight generation.
+MedPub is a full-stack web application designed to facilitate medical literature review and knowledge extraction from PDF documents. It leverages AI and machine learning to enable document ingestion, contextual summarization, and interactive multi-document querying, aiming to enhance research workflows and accelerate insight generation.
 
-## Technical Highlights
+## Technical Architecture and Implementation
 
-MedPub is engineered as a robust, full-stack AI application, showcasing sophisticated architectural patterns, intelligent data processing, and seamless user interaction.
+MedPub is architected as a full-stack AI application, demonstrating robust design patterns, efficient data processing, and responsive user interaction.
 
-### AI/ML Core (Retrieval-Augmented Generation - RAG Pipeline)
+### AI/ML Core: Retrieval-Augmented Generation (RAG) Pipeline
 
-At the heart of MedPub is a meticulously designed RAG pipeline that transforms raw PDF content into a searchable knowledge base and provides context-aware responses.
+Central to MedPub's functionality is a RAG pipeline that processes unstructured PDF content into a searchable knowledge base for contextual responses.
 
-*   **Intelligent Document Ingestion**: PDFs are parsed using `PyMuPDF`, and their content is intelligently chunked into manageable segments. This process includes preserving metadata (e.g., page numbers, sections) for accurate source attribution.
-*   **Vector Embeddings with OpenAI**: Document chunks are converted into high-dimensional vector embeddings using OpenAI's powerful embedding models. These numerical representations capture the semantic meaning of the text.
-*   **FAISS Vector Store**: For efficient similarity search and retrieval, these embeddings are indexed and stored in a [FAISS (Facebook AI Similarity Search)](https://github.com/facebookresearch/faiss) vector database. This enables rapid identification of the most semantically relevant document chunks to a given query.
-*   **Contextual Retrieval**: During a chat interaction, user questions are embedded and used to retrieve the most relevant document chunks from the FAISS index. A `similarity_score_threshold` is applied to ensure only highly pertinent information is considered, optimizing both accuracy and latency.
-*   **Conversational AI with LangChain**: The system employs `LangChain` to orchestrate complex interactions between the user's query, retrieved context, and large language models (LLMs). This includes:
-    *   **Multi-Turn Conversational Chain (`ConversationalRetrievalChain`)**: Supports dynamic, multi-turn dialogues with memory (`ConversationSummaryBufferMemory`) to maintain conversation context and coherence.
-    *   **Audience-Specific Summarization**: Abstracts and full paper content can be summarized based on selected audience types (Patient, Clinician, Researcher) by dynamically adjusting LLM prompts and styles.
-    *   **Source Evidence & Confidence Scoring**: Chat responses are augmented with precise, concise source snippets (sentence/paragraph-level) from the original PDFs, along with cosine similarity-based confidence scores, ensuring transparency and verifiability.
-    *   **Robust LLM Integration**: Features adaptive LLM model selection (`gpt-4o-mini`, `gpt-3.5-turbo`, `gpt-4-turbo`, `gpt-4`) and includes sophisticated error handling mechanisms like `retry_with_exponential_backoff` and rate limiting (`@rate_limit`) to ensure reliable API interactions.
-*   **Semantic Search for Similar Papers**: An integrated `arxiv_search` module leverages sentence transformer models and a dedicated FAISS index for arXiv papers. This allows MedPub to identify and recommend semantically similar research papers based on the content of the currently analyzed document.
+*   **Document Ingestion & Chunking**: PDFs are parsed using `PyMuPDF` and segmented into semantically coherent chunks. Metadata such as page numbers and sections are preserved to enable accurate source attribution.
+*   **Vector Embeddings**: Document chunks are transformed into high-dimensional vector embeddings via OpenAI's embedding models, capturing semantic relationships within the text.
+*   **FAISS Vector Store**: Embeddings are indexed and stored in a [FAISS (Facebook AI Similarity Search)](https://github.com/facebookresearch/faiss) vector database. This facilitates low-latency similarity searches, enabling efficient retrieval of relevant document segments for a given query.
+*   **Contextual Retrieval**: During user interactions, queries are embedded and matched against the FAISS index. A `similarity_score_threshold` is applied to filter retrieved chunks, ensuring high relevance and optimizing response latency.
+*   **Conversational AI with LangChain**: `LangChain` orchestrates interactions between user queries, retrieved context, and Large Language Models (LLMs). This includes:
+    *   **Multi-Turn Conversational Chain**: Utilizes `ConversationalRetrievalChain` with `ConversationSummaryBufferMemory` to maintain dialogue coherence across multiple turns.
+    *   **Audience-Specific Summarization**: LLM prompts are dynamically adjusted to generate summaries tailored for different audiences (Patient, Clinician, Researcher).
+    *   **Source Attribution**: Chat responses are augmented with concise, sentence- or paragraph-level source snippets from original PDFs, including cosine similarity-based confidence scores for verifiability.
+    *   **LLM Integration Resilience**: Adaptive LLM model selection and robust error handling mechanisms (`retry_with_exponential_backoff`, `@rate_limit`) mitigate API rate limits and ensure consistent operation with external LLM providers (OpenAI).
+*   **Semantic Search for Similar Papers**: An integrated `arxiv_search` module employs sentence transformer models and a dedicated FAISS index to identify and recommend semantically similar arXiv papers based on uploaded document content.
 
-### Frontend Architecture
+### Frontend Engineering
 
-The user interface is built with a focus on responsiveness, modularity, and a modern user experience.
+The user interface is developed with an emphasis on modularity, responsiveness, and an intuitive user experience.
 
-*   **React with TypeScript**: Provides a robust and scalable foundation for the single-page application, ensuring type safety and maintainability.
-*   **Tailwind CSS**: A utility-first CSS framework used for rapid and consistent UI development, facilitating a sleek, component-driven design.
-*   **Theming System**: Implemented a dynamic light/dark mode theme toggle with automatic system preference detection, ensuring a visually appealing experience across user preferences. The theme system is managed via React Context and leverages Tailwind's `dark:` variants for seamless transitions.
-*   **Component-Based Design**: The UI is logically decomposed into reusable components (`Sidebar`, `PDFUpload`, `AudienceSelector`, `SummaryDisplay`, `Chat`, `SimilarPapersBox`), promoting modularity, reusability, and easier maintenance.
-*   **Interactive Document Management**: Features multi-document selection in the sidebar for contextual chat, real-time upload progress, and immediate feedback on summarization status.
+*   **React with TypeScript**: Provides a type-safe, component-driven framework for building a scalable single-page application.
+*   **Tailwind CSS**: A utility-first CSS framework enabling efficient and consistent styling, promoting rapid UI development and maintainability.
+*   **Dynamic Theming System**: Implemented a light/dark mode theme with automatic system preference detection. This system utilizes React Context for state management and Tailwind's `dark:` variants for seamless visual transitions.
+*   **Component-Based Architecture**: The UI is structured into discrete, reusable components (`Sidebar`, `PDFUpload`, `AudienceSelector`, `SummaryDisplay`, `Chat`, `SimilarPapersBox`), which enhances code organization, reusability, and development efficiency.
+*   **Interactive Document Management**: Features support multi-document selection for unified chat contexts, real-time upload progress feedback, and instant summarization status updates.
 
 ### Backend Infrastructure & API Design
 
-The backend is engineered for performance, scalability, and maintainability, providing a robust API layer for the frontend.
+The backend is designed for high performance, scalability, and maintainability, serving as an API layer.
 
-*   **FastAPI**: A modern, high-performance web framework for Python, ideal for building efficient and scalable asynchronous APIs. It provides automatic interactive API documentation (Swagger UI/ReDoc).
-*   **Asynchronous Operations**: Extensive use of Python's `asyncio` and FastAPI's asynchronous capabilities ensures non-blocking I/O operations, critical for handling long-running tasks like PDF processing, embedding generation, and LLM calls.
-*   **Modular Service Design**: The backend is structured into distinct services (`rag_engine.py`, `llm_services.py`, `arxiv_search.py`), promoting clear separation of concerns and independent development/testing.
-*   **Rate Limiting & Error Handling**: Custom decorators (`@rate_limit`, `retry_with_exponential_backoff`) are implemented for external API calls (e.g., OpenAI, arXiv) to prevent rate limit breaches and ensure resilient operation. Comprehensive logging (`logging` module) provides insights into runtime behavior and errors.
-*   **Vector Store Management**: The FAISS index is efficiently managed, supporting both initial creation from new documents and incremental updates, with local persistence for faster startup times.
-
-## Architecture Diagram
-
-```mermaid
-graph TD
-    A[User Interface - React/TypeScript] -->|API Calls (HTTP/JSON)| B(FastAPI Backend);
-
-    B --> C{Document Ingestion & Processing};
-    C --> D[PyMuPDF];
-    C --> E[LangChain Document Loaders/Splitters];
-
-    B --> F{Embedding Generation};
-    F --> G[OpenAI Embeddings API];
-
-    B --> H{Vector Store Management};
-    H --> I[FAISS Index (Local Persistence)];
-
-    B --> J{LLM Interactions};
-    J --> K[OpenAI Chat/Completion API];
-    J --> L[LangChain Chains (RAG, Conversational)];
-
-    B --> M{External Services};
-    M --> N[arXiv Search API];
-    M --> O[Sentence Transformer Models];
-
-    subgraph RAG Pipeline
-        D --> F;
-        E --> F;
-        F --> H;
-        H --> L;
-        K --> L;
-    end
-
-    subgraph User Interaction Flow
-        A --o Chat[Chat Component];
-        A --o Summary[Summary Display];
-        A --o SimilarPapers[Similar Papers Box];
-        A --o Upload[PDF Upload];
-
-        Upload --> B;
-        Chat --> B;
-        Summary --> B;
-        SimilarPapers --> B;
-    end
-
-    style A fill:#fff,stroke:#333,stroke-width:2px,rx:8px,ry:8px;
-    style B fill:#fff,stroke:#333,stroke-width:2px,rx:8px,ry:8px;
-    style C fill:#f9f,stroke:#333,stroke-width:2px,rx:8px,ry:8px;
-    style D fill:#cdf,stroke:#333,stroke-width:2px,rx:8px,ry:8px;
-    style E fill:#cdf,stroke:#333,stroke-width:2px,rx:8px,ry:8px;
-    style F fill:#fcf,stroke:#333,stroke-width:2px,rx:8px,ry:8px;
-    style G fill:#dfd,stroke:#333,stroke-width:2px,rx:8px,ry:8px;
-    style H fill:#f9f,stroke:#333,stroke-width:2px,rx:8px,ry:8px;
-    style I fill:#cdf,stroke:#333,stroke-width:2px,rx:8px,ry:8px;
-    style J fill:#fcf,stroke:#333,stroke-width:2px,rx:8px,ry:8px;
-    style K fill:#dfd,stroke:#333,stroke-width:2px,rx:8px,ry:8px;
-    style L fill:#cdf,stroke:#333,stroke-width:2px,rx:8px,ry:8px;
-    style M fill:#f9f,stroke:#333,stroke-width:2px,rx:8px,ry:8px;
-    style N fill:#dfd,stroke:#333,stroke-width:2px,rx:8px,ry:8px;
-    style O fill:#dfd,stroke:#333,stroke-width:2px,rx:8px,ry:8px;
-
-    classDef default fill:#f8f8f8,stroke:#333,stroke-width:2px;
-    classDef mainNode fill:#e0f7fa,stroke:#00acc1,stroke-width:2px;
-
-```
+*   **FastAPI**: A modern Python web framework enabling the development of high-performance, asynchronous APIs. FastAPI automatically generates interactive API documentation (Swagger UI/ReDoc).
+*   **Asynchronous Operations**: Leverages Python's `asyncio` and FastAPI's asynchronous capabilities for non-blocking I/O, essential for computationally intensive tasks such as PDF processing, embedding generation, and LLM inferences.
+*   **Modular Service Design**: The backend is organized into distinct, focused services (`rag_engine.py`, `llm_services.py`, `arxiv_search.py`), promoting clear separation of concerns, testability, and parallel development.
+*   **API Resilience**: Custom decorators (`@rate_limit`, `retry_with_exponential_backoff`) are implemented to manage external API calls, preventing rate limit breaches and enhancing system resilience.
+*   **Vector Store Management**: The FAISS index is managed efficiently, supporting both initial construction and incremental updates. Local persistence of the index optimizes application startup times.
 
 ## Setup Instructions
 
-This project requires both Python (for the backend) and Node.js (for the frontend).
+This project requires Python (for the backend) and Node.js (for the frontend).
+
+### Prerequisites
+
+*   **Python 3.9+**: Ensure Python is installed and configured in your system PATH.
+*   **Node.js 18+**: Ensure Node.js and npm (or yarn) are installed.
+*   **OpenAI API Key**: Obtain an API key from OpenAI.
+
+### Local Development Setup
+
+1.  **Backend Setup:**
+    ```bash
+    cd backend
+    python -m venv venv
+    source venv/bin/activate # On Windows: .\venv\Scripts\activate
+    pip install -r requirements.txt
+    # Create a .env file and add your OpenAI API key
+    echo "OPENAI_API_KEY=\"your_openai_api_key_here\"" > .env
+    uvicorn main:app --reload
+    ```
+2.  **Frontend Setup:**
+    ```bash
+    cd frontend
+    npm install
+    npm run dev
+    ```
+
+### Running the Application
+
+Once both backend and frontend development servers are active, access the application via your web browser at the address provided by the Vite server (typically `http://localhost:5173`).
+
+## Future Roadmap
+
+*   **Advanced Citation Management**: Implement granular citation tracking and direct navigation to source content within PDFs.
+*   **Multi-Document Synthesis**: Develop capabilities to synthesize findings across multiple papers, identifying consensus, contradictions, and thematic trends.
+*   **User Authentication & Persistent Storage**: Integrate a robust authentication system and a dedicated database for persistent storage of user documents and chat histories.
+*   **Scalable Vector Store**: Evaluate and integrate cloud-native or distributed vector store solutions (e.g., Pinecone, Weaviate, Milvus) for production-grade scalability.
+
+## Challenges & Trade-offs
+
+Development of MedPub involved addressing key engineering challenges and making deliberate design trade-offs:
+
+*   **LLM API Resilience**: Implemented custom retry logic with exponential backoff and client-side rate limiting to manage OpenAI API quotas and ensure system stability under varying load conditions or transient network issues.
+*   **Context Window Optimization**: Managed LLM token limits by implementing efficient document chunking strategies, dynamic retrieval `k` value adjustments, and `ConversationSummaryBufferMemory` for concise chat history summarization.
+*   **UI Responsiveness for AI Workloads**: Engineered asynchronous backend operations and optimized frontend state management to prevent UI blocking during intensive AI tasks (embeddings, LLM calls), maintaining a fluid user experience.
+*   **Accuracy vs. Latency in RAG**: Balanced the depth of retrieved context for answer accuracy against the need for low-latency responses, particularly for interactive chat.
 
 ### Prerequisites
 
