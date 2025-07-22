@@ -27,25 +27,23 @@ Central to MedPub's functionality is a RAG pipeline that processes unstructured 
     *   **LLM Integration Resilience**: Adaptive LLM model selection and robust error handling mechanisms (`retry_with_exponential_backoff`, `@rate_limit`) mitigate API rate limits and ensure consistent operation with external LLM providers (OpenAI).
 *   **Semantic Search for Similar Papers**: An integrated `arxiv_search` module employs sentence transformer models and a dedicated FAISS index to identify and recommend semantically similar arXiv papers based on uploaded document content.
 
-### Frontend Engineering
+## Frontend Engineering
 
-The user interface is developed with an emphasis on modularity, responsiveness, and an intuitive user experience.
+- React with TypeScript  
+- Tailwind CSS  
+- Light/dark theme toggle with system preference detection  
+- Component-based structure (`Sidebar`, `PDFUpload`, `AudienceSelector`, `SummaryDisplay`, `Chat`, `SimilarPapersBox`)  
+- Multi-document selection and contextual chat  
+- Real-time upload progress and summarization status  
 
-*   **React with TypeScript**: Provides a type-safe, component-driven framework for building a scalable single-page application.
-*   **Tailwind CSS**: A utility-first CSS framework enabling efficient and consistent styling, promoting rapid UI development and maintainability.
-*   **Dynamic Theming System**: Implemented a light/dark mode theme with automatic system preference detection. This system utilizes React Context for state management and Tailwind's `dark:` variants for seamless visual transitions.
-*   **Component-Based Architecture**: The UI is structured into discrete, reusable components (`Sidebar`, `PDFUpload`, `AudienceSelector`, `SummaryDisplay`, `Chat`, `SimilarPapersBox`), which enhances code organization, reusability, and development efficiency.
-*   **Interactive Document Management**: Features support multi-document selection for unified chat contexts, real-time upload progress feedback, and instant summarization status updates.
+## Backend Infrastructure
 
-### Backend Infrastructure & API Design
+- FastAPI with async endpoints  
+- Modular service structure (`rag_engine.py`, `llm_services.py`, `arxiv_search.py`)  
+- FAISS vector store with incremental update and local persistence  
+- Async PDF processing, embedding, and LLM interaction  
+- Rate limiting and exponential backoff for external APIs  
 
-The backend is designed for high performance, scalability, and maintainability, serving as an API layer.
-
-*   **FastAPI**: A modern Python web framework enabling the development of high-performance, asynchronous APIs. FastAPI automatically generates interactive API documentation (Swagger UI/ReDoc).
-*   **Asynchronous Operations**: Leverages Python's `asyncio` and FastAPI's asynchronous capabilities for non-blocking I/O, essential for computationally intensive tasks such as PDF processing, embedding generation, and LLM inferences.
-*   **Modular Service Design**: The backend is organized into distinct, focused services (`rag_engine.py`, `llm_services.py`, `arxiv_search.py`), promoting clear separation of concerns, testability, and parallel development.
-*   **API Resilience**: Custom decorators (`@rate_limit`, `retry_with_exponential_backoff`) are implemented to manage external API calls, preventing rate limit breaches and enhancing system resilience.
-*   **Vector Store Management**: The FAISS index is managed efficiently, supporting both initial construction and incremental updates. Local persistence of the index optimizes application startup times.
 
 ## Setup Instructions
 
