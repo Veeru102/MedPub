@@ -1,10 +1,16 @@
-# MedPub: An AI-Powered Medical Research Assistant
+## Overview
 
-MedPub is a full-stack web application designed to facilitate medical literature review and knowledge extraction from PDF documents. It leverages AI and machine learning to enable document ingestion, contextual summarization, and interactive multi-document querying, aiming to enhance research workflows and accelerate insight generation.
+**MedPub** is a full-stack web application designed to facilitate medical literature review and knowledge extraction from PDF-based research papers. It leverages AI and machine learning to:
 
-## Technical Architecture and Implementation
+- Parse and segment medical PDFs using intelligent document chunking  
+- Generate audience-specific summaries tailored for patients, clinicians, or researchers  
+- Support interactive, multi-turn document chat through a Retrieval-Augmented Generation (RAG) pipeline  
+- Retrieve semantically relevant content using OpenAI embeddings and FAISS-based vector search  
+- Provide grounded answers with transparent source evidence from the original text  
+- Recommend similar academic papers using sentence transformer models and semantic search  
+- Enable multi-document selection and contextual reasoning with persistent chat memory  
+- Ensure robust and reliable API interactions with built-in rate limiting and retry logic
 
-MedPub is architected as a full-stack AI application, demonstrating robust design patterns, efficient data processing, and responsive user interaction.
 
 ### AI/ML Core: Retrieval-Augmented Generation (RAG) Pipeline
 
