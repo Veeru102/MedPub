@@ -39,8 +39,11 @@ except ImportError as e:
 # Load environment var
 load_dotenv(override=True)  
 
-# Update ARXIV_LOAD_LIMIT to 100000
+# Update ARXIV_LOAD_LIMIT to 2500000
 os.environ["ARXIV_LOAD_LIMIT"] = "100000"
+
+
+
 
 # Verify OpenAI API key is set
 api_key = os.getenv("OPENAI_API_KEY")

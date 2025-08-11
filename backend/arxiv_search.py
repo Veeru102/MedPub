@@ -9,6 +9,7 @@ import faiss
 import numpy as np
 import threading
 from datetime import datetime
+from pathlib import Path
 
 from arxiv_loader import load_arxiv_metadata
 from arxiv_indexer import build_faiss_index, search_similar_papers
@@ -52,8 +53,13 @@ arxiv_state = ArxivSearchState()
 # FastAPI router
 router = APIRouter(prefix="/arxiv", tags=["arxiv"])
 
-async def initialize_arxiv_search():
-    """Initializes the arXiv search system."""
+async def initialize_arxiv_search(force_reload: bool = False, force_rebuild_index: bool = False):
+    """Initializes the arXiv search system with caching support.
+    
+    Args:
+        force_reload: If True, bypass metadata cache and reload from Kaggle
+        force_rebuild_index: If True, bypass FAISS index cache and rebuild
+    """
     global arxiv_state
     
     with arxiv_state.lock:
@@ -65,23 +71,41 @@ async def initialize_arxiv_search():
         logger.info("Starting arXiv search initialization...")
     
     try:
-        # Load arXiv metadata
-        logger.info("Loading arXiv metadata from Kaggle...")
-        metadata_df = load_arxiv_metadata()
+        start_time = pd.Timestamp.now()
+        
+        # Load arXiv metadata (with caching)
+        if force_reload:
+            logger.info("Force reload requested - bypassing metadata cache...")
+        else:
+            logger.info("Loading arXiv metadata (checking cache first)...")
+            
+        metadata_df = load_arxiv_metadata(force_reload=force_reload)
         
         if metadata_df.empty:
             logger.warning("No arXiv metadata loaded")
             return
         
-        logger.info(f"Loaded {len(metadata_df)} arXiv papers")
+        metadata_load_time = (pd.Timestamp.now() - start_time).total_seconds()
+        logger.info(f"Loaded {len(metadata_df)} arXiv papers in {metadata_load_time:.2f}s")
         
-        # Build FAISS index
-        logger.info("Building FAISS index for arXiv papers...")
-        faiss_index, processed_df = build_faiss_index(metadata_df)
+        # Build FAISS index (with caching)
+        index_start_time = pd.Timestamp.now()
+        if force_rebuild_index:
+            logger.info("Force rebuild requested - bypassing FAISS index cache...")
+        else:
+            logger.info("Building/loading FAISS index (checking cache first)...")
+            
+        faiss_index, processed_df = build_faiss_index(metadata_df, force_rebuild=force_rebuild_index)
+        
+        index_build_time = (pd.Timestamp.now() - index_start_time).total_seconds()
+        logger.info(f"FAISS index ready with {faiss_index.ntotal} vectors in {index_build_time:.2f}s")
         
         # Load sentence transformer model
+        model_start_time = pd.Timestamp.now()
         logger.info("Loading SentenceTransformer model...")
         sentence_model = SentenceTransformer("all-MiniLM-L6-v2")
+        model_load_time = (pd.Timestamp.now() - model_start_time).total_seconds()
+        logger.info(f"SentenceTransformer model loaded in {model_load_time:.2f}s")
         
         # Update global state
         with arxiv_state.lock:
@@ -93,7 +117,9 @@ async def initialize_arxiv_search():
             arxiv_state.last_updated = datetime.now().isoformat()
             arxiv_state.total_papers = len(processed_df)
         
-        logger.info(f"ArXiv search initialized successfully with {len(processed_df)} papers")
+        total_time = (pd.Timestamp.now() - start_time).total_seconds()
+        logger.info(f"ArXiv search initialized successfully with {len(processed_df)} papers in {total_time:.2f}s total")
+        logger.info(f"Performance breakdown: metadata={metadata_load_time:.2f}s, index={index_build_time:.2f}s, model={model_load_time:.2f}s")
         
     except Exception as e:
         logger.error(f"Failed to initialize arXiv search: {e}")
@@ -174,18 +200,101 @@ async def get_arxiv_status():
     )
 
 @router.post("/initialize")
-async def trigger_initialization(background_tasks: BackgroundTasks):
-    """Manually triggers arXiv search initialization."""
+async def trigger_initialization(background_tasks: BackgroundTasks, force_reload: bool = False, force_rebuild_index: bool = False):
+    """Manually triggers arXiv search initialization with optional cache bypass.
+    
+    Args:
+        force_reload: If True, bypass metadata cache and reload from Kaggle
+        force_rebuild_index: If True, bypass FAISS index cache and rebuild
+    """
     if arxiv_state.is_initialized:
-        return {"message": "ArXiv search already initialized"}
+        return {
+            "message": "ArXiv search already initialized",
+            "total_papers": arxiv_state.total_papers,
+            "last_updated": arxiv_state.last_updated
+        }
     
     if arxiv_state.is_loading:
         return {"message": "ArXiv search initialization already in progress"}
     
     # Run initialization in background
-    background_tasks.add_task(initialize_arxiv_search)
+    background_tasks.add_task(
+        initialize_arxiv_search,
+        force_reload=force_reload,
+        force_rebuild_index=force_rebuild_index
+    )
     
-    return {"message": "ArXiv search initialization started"}
+    cache_status = []
+    if force_reload:
+        cache_status.append("bypassing metadata cache")
+    if force_rebuild_index:
+        cache_status.append("bypassing FAISS index cache")
+    
+    status_msg = "ArXiv search initialization started"
+    if cache_status:
+        status_msg += f" ({', '.join(cache_status)})"
+    
+    return {"message": status_msg}
+
+@router.post("/reinitialize")
+async def force_reinitialize(background_tasks: BackgroundTasks):
+    """Forces complete reinitialization, bypassing all caches."""
+    
+    # Reset state
+    with arxiv_state.lock:
+        arxiv_state.is_initialized = False
+        arxiv_state.is_loading = False
+        arxiv_state.faiss_index = None
+        arxiv_state.metadata_df = None
+        arxiv_state.sentence_model = None
+        arxiv_state.total_papers = 0
+        arxiv_state.last_updated = None
+    
+    # Run full reinitialization
+    background_tasks.add_task(
+        initialize_arxiv_search,
+        force_reload=True,
+        force_rebuild_index=True
+    )
+    
+    return {"message": "Full reinitialization started (bypassing all caches)"}
+
+@router.get("/status")
+async def get_initialization_status():
+    """Gets the current initialization status and cache information."""
+    
+    # Check cache file existence
+    cache_dir = Path(__file__).parent / "arxiv_cache"
+    metadata_cache = cache_dir / "arxiv_metadata.parquet"
+    
+    faiss_cache_dir = Path(__file__).parent / "faiss_index"
+    index_cache = faiss_cache_dir / "arxiv_index.index"
+    faiss_metadata_cache = faiss_cache_dir / "metadata.parquet"
+    
+    cache_info = {
+        "metadata_cache_exists": metadata_cache.exists(),
+        "metadata_cache_path": str(metadata_cache) if metadata_cache.exists() else None,
+        "faiss_index_cache_exists": index_cache.exists(),
+        "faiss_metadata_cache_exists": faiss_metadata_cache.exists(),
+        "faiss_cache_dir": str(faiss_cache_dir)
+    }
+    
+    # Add file sizes if they exist
+    if metadata_cache.exists():
+        cache_info["metadata_cache_size_mb"] = round(metadata_cache.stat().st_size / (1024*1024), 2)
+    if index_cache.exists():
+        cache_info["faiss_index_size_mb"] = round(index_cache.stat().st_size / (1024*1024), 2)
+    
+    return {
+        "is_initialized": arxiv_state.is_initialized,
+        "is_loading": arxiv_state.is_loading,
+        "total_papers": arxiv_state.total_papers,
+        "last_updated": arxiv_state.last_updated,
+        "has_faiss_index": arxiv_state.faiss_index is not None,
+        "has_metadata": arxiv_state.metadata_df is not None,
+        "has_model": arxiv_state.sentence_model is not None,
+        "cache_info": cache_info
+    }
 
 # Function to be called during FastAPI startup
 async def startup_arxiv_search():

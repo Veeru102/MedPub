@@ -197,7 +197,6 @@ class RAGEngine:
                     batch = documents[i:i + BATCH_SIZE]
                     batch_start = time.time()
                     
-                    # Create temporary store for batch
                     batch_store = FAISS.from_documents(batch, self.embeddings)
                     
                     # Merge into existing store
@@ -207,7 +206,6 @@ class RAGEngine:
                     batch_num = i // BATCH_SIZE + 1
                     logger.info(f"Batch {batch_num}/{len(documents) // BATCH_SIZE + 1} merged in {batch_time:.2f}s")
             else:
-                # Create new vector store
                 if len(documents) > BATCH_SIZE:
                     # Create initial vector store with first batch
                     first_batch = documents[:BATCH_SIZE]
