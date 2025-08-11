@@ -8,11 +8,12 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Run NLTK download during build
+COPY download_nltk.py .
+RUN python download_nltk.py
+
 # Copy the backend application code
 COPY . .
 
-# Expose the port the application runs on (FastAPI default is 8000)
-EXPOSE 8000
-
-# Command to run the application using Uvicorn
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"] 
+# Expose the port the application runs on
+EXPOSE 8000 
