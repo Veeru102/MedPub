@@ -36,6 +36,7 @@ setup-frontend:
 run-backend:
 	@echo "Starting backend server..."
 	. $(VENV_DIR)/bin/activate && \
+		export ARXIV_LOAD_LIMIT=2500000 && \
 		cd $(BACKEND_DIR) && \
 		python -m uvicorn main:app --reload
 
