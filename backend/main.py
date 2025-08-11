@@ -14,14 +14,7 @@ from sklearn.metrics.pairwise import cosine_similarity
 import numpy as np
 import sys
 import asyncio
-
-from document_processor import DocumentProcessor
-from rag_engine import RAGEngine
-from enhanced_document_processor import EnhancedDocumentProcessor
-from llm_services import LLMService
-from langchain_core.documents import Document 
-from langchain_community.document_loaders import PyMuPDFLoader 
-from arxiv_search import router as arxiv_router, startup_arxiv_search
+import nltk # Added for NLTK path configuration
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
