@@ -2,20 +2,18 @@ services:
   - type: web
     name: medcopilot-backend
     env: python
+    rootDirectory: backend
     buildCommand: |
       pip install -r requirements.txt
-      echo "Pre-cd: Current directory: $(pwd)"
+      echo "Current directory: $(pwd)"
       ls -la
-      cd backend/
-      echo "Post-cd: Current directory: $(pwd)"
-      ls -la
-      mkdir -p ../nltk_data
+      mkdir -p /opt/render/project/src/nltk_data
       echo "Running NLTK download script..."
       NLTK_DATA=/opt/render/project/src/nltk_data python download_nltk.py
-    startCommand: cd backend && uvicorn main:app --host 0.0.0.0 --port $PORT
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
     envVars:
       - key: PYTHONPATH
-        value: /opt/render/project/src
+        value: /opt/render/project/src/backend
       - key: NLTK_DATA
         value: /opt/render/project/src/nltk_data
       - key: OPENAI_API_KEY
