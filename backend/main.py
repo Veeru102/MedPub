@@ -10,8 +10,6 @@ import json
 from datetime import datetime
 from pydantic import BaseModel
 import logging
-import faiss
-from sklearn.metrics.pairwise import cosine_similarity
 import numpy as np
 import sys
 import asyncio
@@ -78,28 +76,50 @@ app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
 # Stores Langchain Document objects with chunks and metadata
 processed_documents: Dict[str, List[Document]] = {}
 document_sections: Dict[str, Dict[str, Any]] = {}  # Store section information
-doc_processor = DocumentProcessor()
-enhanced_processor = EnhancedDocumentProcessor()
-llm_service = LLMService()
 
-# Initialize RAGEngine globally
-rage_engine = RAGEngine()
+# Global variables for lazy loading
+doc_processor = None
+enhanced_processor = None
+llm_service = None
+rage_engine = None
 
-# Define startup event to load the FAISS index
+def get_doc_processor():
+    """Lazy load DocumentProcessor"""
+    global doc_processor
+    if doc_processor is None:
+        from document_processor import DocumentProcessor
+        doc_processor = DocumentProcessor()
+    return doc_processor
+
+def get_enhanced_processor():
+    """Lazy load EnhancedDocumentProcessor"""
+    global enhanced_processor
+    if enhanced_processor is None:
+        from enhanced_document_processor import EnhancedDocumentProcessor
+        enhanced_processor = EnhancedDocumentProcessor()
+    return enhanced_processor
+
+def get_llm_service():
+    """Lazy load LLMService"""
+    global llm_service
+    if llm_service is None:
+        from llm_services import LLMService
+        llm_service = LLMService()
+    return llm_service
+
+def get_rage_engine():
+    """Lazy load RAGEngine"""
+    global rage_engine
+    if rage_engine is None:
+        from rag_engine import RAGEngine
+        rage_engine = RAGEngine()
+    return rage_engine
+
+# Minimal startup event - no heavy loading
 @app.on_event("startup")
 async def startup_event():
-    logger.info("Application startup: Loading FAISS index...")
-    try:
-        rage_engine.load_vector_store()
-    except Exception as e:
-        logger.error(f"Failed to load FAISS index during startup: {e}")
-    
-    # Initialize arXiv search system
-    logger.info("Application startup: Initializing arXiv search...")
-    try:
-        await startup_arxiv_search()
-    except Exception as e:
-        logger.error(f"Failed to initialize arXiv search during startup: {e}")
+    logger.info("Application startup: Minimal initialization complete")
+    logger.info("Heavy components will be loaded on-demand to save memory")
 
 
 class SummarizeRequest(BaseModel):
@@ -190,7 +210,7 @@ async def upload_pdf(file: UploadFile = File(...)):
     try:
         logger.info(f"Processing file: {filename}")
         # Use enhanced processor for better chunking and section detection
-        lc_documents, doc_info = enhanced_processor.process_pdf_enhanced(file_path)
+        lc_documents, doc_info = get_enhanced_processor().process_pdf_enhanced(file_path)
         
         if not lc_documents:
             logger.warning(f"No documents extracted from {filename}")
@@ -204,7 +224,7 @@ async def upload_pdf(file: UploadFile = File(...)):
         
         # Extracts topics for clustering.
         full_text = '\n'.join([doc.page_content for doc in lc_documents[:5]])  # Uses first 5 chunks.
-        topics = await llm_service.extract_key_topics(full_text)
+        topics = await get_llm_service().extract_key_topics(full_text)
         doc_info['topics'] = topics
         
         # Update vector store with rate limiting
@@ -215,8 +235,8 @@ async def upload_pdf(file: UploadFile = File(...)):
             
             if all_processed_documents:
                 logger.info(f"Updating vector store with {len(all_processed_documents)} documents...")
-                rage_engine.create_vector_store_from_documents(all_processed_documents)
-                rage_engine.setup_qa_chain()
+                get_rage_engine().create_vector_store_from_documents(all_processed_documents)
+                get_rage_engine().setup_qa_chain()
                 logger.info("Vector store updated successfully")
             
             return {"filename": filename, "message": "File uploaded and processed successfully"}
@@ -281,7 +301,7 @@ async def summarize_paper(request: SummarizeRequest):
         chunks_text = [doc.page_content for doc in document_chunks]
         full_text = '\n'.join(chunks_text)
         
-        summary_result = await llm_service.generate_summary(
+        summary_result = await get_llm_service().generate_summary(
             text=full_text,
             audience=request.audience_type,
             sections=sections
@@ -325,8 +345,8 @@ async def delete_file(request: DeleteRequest):
             
             if all_processed_documents:
                 logger.info(f"Updating vector store after file deletion with {len(all_processed_documents)} documents...")
-                rage_engine.create_vector_store_from_documents(all_processed_documents)
-                rage_engine.setup_qa_chain()
+                get_rage_engine().create_vector_store_from_documents(all_processed_documents)
+                get_rage_engine().setup_qa_chain()
                 logger.info("Vector store updated successfully")
                 
         except Exception as e:
@@ -352,12 +372,12 @@ async def query_papers(request: QueryRequest):
         
     try:
         # Uses the updated query method.
-        result = await rage_engine.query(request.query)
+        result = await get_rage_engine().query(request.query)
         return {"message": result["answer"], "sources": result["sources"]}
         
     except Exception as e:
         logger.error(f"Error during QA query: {e}")
-        if not rage_engine.qa_chain:
+        if not get_rage_engine().qa_chain:
             raise HTTPException(status_code=503, detail="RAG system not ready. Please upload and process a document.")
         else:
             raise HTTPException(status_code=500, detail=f"Error during RAG query: {e}")
@@ -388,10 +408,10 @@ async def chat_with_documents(request: ChatRequest):
             )
         
         # Update RAG engine with combined documents
-        rage_engine.create_vector_store_from_documents(all_documents)
+        get_rage_engine().create_vector_store_from_documents(all_documents)
         
         # Use the chat method
-        result = await rage_engine.chat(request.question, request.chat_history)
+        result = await get_rage_engine().chat(request.question, request.chat_history)
         
         return {
             "answer": result["answer"],
@@ -401,7 +421,7 @@ async def chat_with_documents(request: ChatRequest):
         
     except Exception as e:
         logger.error(f"Error during chat: {e}")
-        if not rage_engine.chat_chain:
+        if not get_rage_engine().chat_chain:
             raise HTTPException(status_code=503, detail="Chat system not ready. Please upload and process a document.")
         else:
             raise HTTPException(status_code=500, detail=f"Error during chat: {e}")
@@ -410,7 +430,7 @@ async def chat_with_documents(request: ChatRequest):
 async def clear_chat_history():
     """Clears the conversation history."""
     try:
-        rage_engine.clear_memory()
+        get_rage_engine().clear_memory()
         return {"message": "Chat history cleared successfully"}
     except Exception as e:
         logger.error(f"Error clearing chat history: {e}")
@@ -431,13 +451,13 @@ async def get_sentence_explanation(request: ExplanationRequest):
         document_chunks = processed_documents[filename]
         
         # Get embeddings for the sentence
-        sentence_embedding = await rage_engine.embeddings.aembed_query(request.sentence)
+        sentence_embedding = await get_rage_engine().embeddings.aembed_query(request.sentence)
         sentence_embedding = np.array(sentence_embedding).reshape(1, -1)  # Reshape to 2D array
         
         # Calculate cosine similarity with all chunks
         similarities = []
         for doc in document_chunks:
-            chunk_embedding = await rage_engine.embeddings.aembed_query(doc.page_content)
+            chunk_embedding = await get_rage_engine().embeddings.aembed_query(doc.page_content)
             chunk_embedding = np.array(chunk_embedding).reshape(1, -1)  # Reshape to 2D array
             similarity = cosine_similarity(sentence_embedding, chunk_embedding)[0][0]  # Get scalar value
             similarities.append({
@@ -475,12 +495,12 @@ async def query_document(request: QueryDocRequest):
         doc_chunks = processed_documents[request.document_id]
         
         # Uses RAG engine to find relevant chunks.
-        query_embedding = await rage_engine.embeddings.aembed_query(request.question)
+        query_embedding = await get_rage_engine().embeddings.aembed_query(request.question)
         
         # Calculates similarities and gets top chunks.
         similarities = []
         for doc in doc_chunks:
-            chunk_embedding = await rage_engine.embeddings.aembed_query(doc.page_content)
+            chunk_embedding = await get_rage_engine().embeddings.aembed_query(doc.page_content)
             similarity = cosine_similarity(
                 np.array(query_embedding).reshape(1, -1),
                 np.array(chunk_embedding).reshape(1, -1)
@@ -496,7 +516,7 @@ async def query_document(request: QueryDocRequest):
         relevant_chunks = similarities[:5]
         
         # Generates answer with citations.
-        answer_result = await llm_service.answer_with_citations(
+        answer_result = await get_llm_service().answer_with_citations(
             question=request.question,
             relevant_chunks=relevant_chunks
         )
@@ -520,7 +540,7 @@ async def explain_highlighted_text(request: ExplainTextRequest):
         raise HTTPException(status_code=404, detail="Document not found")
     
     try:
-        result = await llm_service.explain_text(
+        result = await get_llm_service().explain_text(
             selected_text=request.selected_text,
             context=request.context,
             user_question=request.question,
@@ -565,7 +585,7 @@ async def synthesize_topic(request: SynthesizeRequest):
         raise HTTPException(status_code=400, detail="No valid papers found for synthesis")
     
     try:
-        synthesis_result = await llm_service.synthesize_papers(
+        synthesis_result = await get_llm_service().synthesize_papers(
             papers_data=papers_data,
             synthesis_type=request.synthesis_type
         )
@@ -739,13 +759,13 @@ async def debug_embeddings(filename: str, query: Optional[str] = None):
     if filename not in processed_documents:
         raise HTTPException(status_code=404, detail="Document not found")
         
-    if not rage_engine.vector_store:
+    if not get_rage_engine().vector_store:
         raise HTTPException(status_code=400, detail="Vector store not initialized")
     
     try:
         # If query provided, show similarity to chunks
         if query:
-            docs_and_scores = rage_engine.vector_store.similarity_search_with_score(query, k=5)
+            docs_and_scores = get_rage_engine().vector_store.similarity_search_with_score(query, k=5)
             return {
                 "query": query,
                 "results": [
@@ -760,8 +780,8 @@ async def debug_embeddings(filename: str, query: Optional[str] = None):
         
         # Otherwise show general embedding stats
         return {
-            "total_embeddings": rage_engine.vector_store._collection.count(),
-            "embedding_dimension": rage_engine.vector_store._collection.dim,
+            "total_embeddings": get_rage_engine().vector_store._collection.count(),
+            "embedding_dimension": get_rage_engine().vector_store._collection.dim,
             "index_type": "FAISS"
         }
         
@@ -772,16 +792,16 @@ async def debug_embeddings(filename: str, query: Optional[str] = None):
 @app.get("/debug-index-health")
 async def check_index_health():
     """Checks FAISS index health and stats."""
-    if not rage_engine.vector_store:
+    if not get_rage_engine().vector_store:
         raise HTTPException(status_code=400, detail="Vector store not initialized")
         
     try:
         # Get index stats
-        index = rage_engine.vector_store.index
+        index = get_rage_engine().vector_store.index
         
         # Basic health check - try a random query
         test_query = "This is a test query"
-        test_embedding = rage_engine.embeddings.embed_query(test_query)
+        test_embedding = get_rage_engine().embeddings.embed_query(test_query)
         
         # Try search
         D, I = index.search(np.array([test_embedding], dtype=np.float32), k=1)
@@ -792,8 +812,8 @@ async def check_index_health():
             "dimension": index.d,
             "is_trained": index.is_trained,
             "test_search_successful": bool(len(D) > 0 and len(I) > 0),
-            "index_path": rage_engine.faiss_index_path,
-            "index_file_exists": os.path.exists(rage_engine.faiss_index_path)
+            "index_path": get_rage_engine().faiss_index_path,
+            "index_file_exists": os.path.exists(get_rage_engine().faiss_index_path)
         }
         
     except Exception as e:
@@ -806,12 +826,12 @@ async def check_index_health():
 @app.post("/debug-retrieval")
 async def debug_retrieval(query: str, k: Optional[int] = 3):
     """Debug endpoint to inspect retrieval results."""
-    if not rage_engine.vector_store:
+    if not get_rage_engine().vector_store:
         raise HTTPException(status_code=400, detail="Vector store not initialized")
         
     try:
         # Get raw retrieval results
-        docs = rage_engine.vector_store.similarity_search_with_score(query, k=k)
+        docs = get_rage_engine().vector_store.similarity_search_with_score(query, k=k)
         
         # Format results
         results = []

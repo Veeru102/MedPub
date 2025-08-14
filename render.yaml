@@ -11,4 +11,10 @@ services:
       - key: NLTK_DATA
         value: /opt/render/project/src/nltk_data
       - key: OPENAI_API_KEY
-        sync: false 
+        sync: false
+      - key: PYTORCH_CUDA_ALLOC_CONF
+        value: max_split_size_mb:128
+      - key: TRANSFORMERS_CACHE
+        value: /tmp/transformers_cache
+      - key: HF_HOME
+        value: /tmp/huggingface 
