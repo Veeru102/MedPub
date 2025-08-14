@@ -15,8 +15,8 @@ import sys
 import asyncio
 import nltk # Added for NLTK path configuration
 
-# Import arXiv router
-from arxiv_search import router as arxiv_router
+# Defer arXiv router import to avoid loading heavy dependencies at startup
+arxiv_router = None"
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -63,8 +63,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Include arXiv search router
-app.include_router(arxiv_router)
+# ArXiv router will be included on-demand to avoid memory issues at startup
+# It will be loaded when first arXiv endpoint is accessed
 
 # Create uploads directory if it doesn't exist
 UPLOAD_DIR = "uploads"
@@ -114,6 +114,15 @@ def get_rage_engine():
         from rag_engine import RAGEngine
         rage_engine = RAGEngine()
     return rage_engine
+
+def ensure_arxiv_router():
+    """Ensure arXiv router is included in the app"""
+    global arxiv_router
+    if arxiv_router is None:
+        from arxiv_search import router as _arxiv_router
+        arxiv_router = _arxiv_router
+        app.include_router(arxiv_router)
+        logger.info("ArXiv router loaded and included")
 
 # Minimal startup event - no heavy loading
 @app.on_event("startup")
@@ -854,6 +863,16 @@ async def debug_retrieval(query: str, k: Optional[int] = 3):
     except Exception as e:
         logger.error(f"Retrieval debug failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/initialize-arxiv")
+async def initialize_arxiv():
+    """Initialize arXiv search system on-demand"""
+    try:
+        ensure_arxiv_router()
+        return {"status": "arXiv router initialized", "timestamp": datetime.now().isoformat()}
+    except Exception as e:
+        logger.error(f"Failed to initialize arXiv router: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to initialize arXiv: {str(e)}")
 
 if __name__ == "__main__":
     import uvicorn

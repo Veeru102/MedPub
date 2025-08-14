@@ -4,15 +4,43 @@ from typing import List, Dict, Any, Optional
 import pandas as pd
 from fastapi import APIRouter, HTTPException, BackgroundTasks
 from pydantic import BaseModel, Field
-from sentence_transformers import SentenceTransformer
-import faiss
-import numpy as np
 import threading
 from datetime import datetime
 from pathlib import Path
 
-from arxiv_loader import load_arxiv_metadata
-from arxiv_indexer import build_faiss_index, search_similar_papers
+# Lazy imports for heavy dependencies
+SentenceTransformer = None
+faiss = None
+np = None
+
+def _ensure_heavy_imports():
+    """Lazy load heavy dependencies"""
+    global SentenceTransformer, faiss, np, load_arxiv_metadata, build_faiss_index, search_similar_papers
+    if SentenceTransformer is None:
+        from sentence_transformers import SentenceTransformer as _SentenceTransformer
+        SentenceTransformer = _SentenceTransformer
+    if faiss is None:
+        import faiss as _faiss
+        faiss = _faiss
+    if np is None:
+        import numpy as _np
+        np = _np
+
+# Lazy imports for arxiv modules
+load_arxiv_metadata = None
+build_faiss_index = None
+search_similar_papers = None
+
+def _ensure_arxiv_imports():
+    """Lazy load arxiv dependencies"""
+    global load_arxiv_metadata, build_faiss_index, search_similar_papers
+    if load_arxiv_metadata is None:
+        from arxiv_loader import load_arxiv_metadata as _load_arxiv_metadata
+        load_arxiv_metadata = _load_arxiv_metadata
+    if build_faiss_index is None:
+        from arxiv_indexer import build_faiss_index as _build_faiss_index, search_similar_papers as _search_similar_papers
+        build_faiss_index = _build_faiss_index
+        search_similar_papers = _search_similar_papers
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -38,7 +66,7 @@ class ArxivStatusResponse(BaseModel):
 # Global state for arXiv search
 class ArxivSearchState:
     def __init__(self):
-        self.faiss_index: Optional[faiss.IndexFlatIP] = None
+        self.faiss_index = None  # Optional[faiss.IndexFlatIP] loaded lazily
         self.metadata_df: Optional[pd.DataFrame] = None
         self.sentence_model: Optional[SentenceTransformer] = None
         self.is_initialized = False
@@ -61,6 +89,10 @@ async def initialize_arxiv_search(force_reload: bool = False, force_rebuild_inde
         force_rebuild_index: If True, bypass FAISS index cache and rebuild
     """
     global arxiv_state
+    
+    # Load heavy dependencies only when needed
+    _ensure_heavy_imports()
+    _ensure_arxiv_imports()
     
     with arxiv_state.lock:
         if arxiv_state.is_initialized or arxiv_state.is_loading:
