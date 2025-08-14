@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from typing import List, Optional, Dict, Any
+from langchain_core.documents import Document
 import os
 from dotenv import load_dotenv
 import json
