@@ -30,8 +30,14 @@ def download_nltk_data(download_dir=None):
     print("You can now run the backend server.")
 
 if __name__ == "__main__":
+    print(f"Script location: {__file__}")
+    print(f"Current working directory: {os.getcwd()}")
+    print(f"Environment NLTK_DATA: {os.environ.get('NLTK_DATA', 'Not set')}")
+    
     # Default to a directory relative to the script if not specified by env var
     nltk_data_path = os.environ.get("NLTK_DATA", os.path.join(os.getcwd(), "nltk_data"))
+    print(f"Using NLTK data path: {nltk_data_path}")
+    
     os.makedirs(nltk_data_path, exist_ok=True)
     nltk.data.path.append(nltk_data_path) # Add to NLTK's data path
     download_nltk_data(download_dir=nltk_data_path) 
