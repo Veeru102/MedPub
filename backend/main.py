@@ -16,6 +16,9 @@ import sys
 import asyncio
 import nltk # Added for NLTK path configuration
 
+# Import arXiv router
+from arxiv_search import router as arxiv_router
+
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
