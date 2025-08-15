@@ -75,14 +75,7 @@ const ThemeToggle: React.FC = () => {
   );
 };
 
-// PDF viewer placeholder.
-const PdfViewerPlaceholder: React.FC = () => (
-    <div className="w-full h-96 bg-gray-100 flex items-center justify-center text-gray-500 italic rounded-md border border-dashed border-gray-300">
-        PDF Preview Area (Implementation Needed)
-        {}
-        {}
-    </div>
-);
+
 
 // Sidebar for document management.
 const Sidebar: React.FC<{ files: string[], onSummarize: (filename: string) => void, summaries: Record<string, string>, isCollapsed: boolean, onFileSelect: (filename: string) => void, selectedFiles: string[], onRemoveFile: (filename: string) => void, onToggleCollapse: () => void } > = ({ files, onSummarize, summaries, isCollapsed, onFileSelect, selectedFiles, onRemoveFile, onToggleCollapse }) => (
