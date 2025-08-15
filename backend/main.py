@@ -39,8 +39,9 @@ except ImportError as e:
 # Load environment var
 load_dotenv(override=True)  
 
-# Update ARXIV_LOAD_LIMIT to 2500000
-os.environ["ARXIV_LOAD_LIMIT"] = "100000"
+# Set ARXIV_LOAD_LIMIT for memory-constrained environments
+if "ARXIV_LOAD_LIMIT" not in os.environ:
+    os.environ["ARXIV_LOAD_LIMIT"] = "10000"
 
 
 
@@ -148,9 +149,7 @@ async def initialize_arxiv_background():
 async def startup_event():
     logger.info("Application startup: Minimal initialization complete")
     logger.info("Heavy components will be loaded on-demand to save memory")
-    
-    # Initialize arXiv search in background to avoid blocking startup
-    asyncio.create_task(initialize_arxiv_background())
+    logger.info("ArXiv search will be initialized on first use to conserve memory")
 
 
 class SummarizeRequest(BaseModel):
@@ -192,6 +191,39 @@ class DeleteRequest(BaseModel):
 async def root():
     return {"message": "Welcome to MedCopilot API"}
 
+@app.get("/health")
+async def health_check():
+    """Health check endpoint for monitoring"""
+    try:
+        # Check basic system health
+        health_status = {
+            "status": "healthy",
+            "timestamp": datetime.now().isoformat(),
+            "components": {
+                "api": "healthy",
+                "openai": "healthy" if os.getenv("OPENAI_API_KEY") else "missing_key",
+            }
+        }
+        
+        # Check arXiv status if possible
+        try:
+            ensure_arxiv_router()
+            from arxiv_search import arxiv_state
+            health_status["components"]["arxiv"] = {
+                "status": "ready" if arxiv_state.is_initialized else ("loading" if arxiv_state.is_loading else "not_initialized"),
+                "papers_loaded": arxiv_state.total_papers
+            }
+        except Exception:
+            health_status["components"]["arxiv"] = {"status": "unavailable"}
+        
+        return health_status
+    except Exception as e:
+        return {
+            "status": "unhealthy",
+            "timestamp": datetime.now().isoformat(),
+            "error": str(e)
+        }
+
 @app.post("/admin/initialize-arxiv")
 async def initialize_arxiv_manual():
     """Manually initialize arXiv search system"""
@@ -205,11 +237,23 @@ async def initialize_arxiv_manual():
         if arxiv_state.is_loading:
             return {"status": "loading", "message": "arXiv search system is currently loading"}
         
+        logger.info("Starting manual arXiv initialization...")
         await initialize_arxiv_search()
         return {"status": "success", "message": "arXiv search system initialized successfully"}
     except Exception as e:
+        import traceback
+        error_details = traceback.format_exc()
         logger.error(f"Failed to initialize arXiv: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to initialize arXiv: {str(e)}")
+        logger.error(f"Full traceback: {error_details}")
+        
+        # Provide helpful error message for memory issues
+        error_msg = str(e)
+        if "memory" in error_msg.lower() or "oom" in error_msg.lower():
+            detail = "arXiv initialization failed due to memory constraints. Try again when system has more available memory."
+        else:
+            detail = f"Failed to initialize arXiv: {error_msg}"
+        
+        raise HTTPException(status_code=500, detail=detail)
 
 @app.get("/admin/arxiv-status")
 async def get_arxiv_status():
@@ -762,19 +806,37 @@ async def get_similar_papers(filename: str, limit: int = 3):
         # Import directly from arxiv_indexer to avoid lazy loading issues
         from arxiv_indexer import search_similar_papers
         
-        # Check if arXiv search is initialized
+        # Check if arXiv search is initialized, if not, initialize it now
         if not arxiv_state.is_initialized:
-            logger.warning(f"arXiv state: initialized={arxiv_state.is_initialized}, loading={arxiv_state.is_loading}, has_index={arxiv_state.faiss_index is not None}, has_metadata={arxiv_state.metadata_df is not None}")
             if arxiv_state.is_loading:
                 raise HTTPException(
                     status_code=503, 
                     detail="arXiv search system is still loading. Please try again in a moment."
                 )
             else:
-                raise HTTPException(
-                    status_code=503, 
-                    detail="Unable to find similar papers. HTTP 500: Make sure the arXiv search system is initialized and try again."
-                )
+                logger.info("ArXiv search not initialized, initializing on-demand...")
+                try:
+                    from arxiv_search import initialize_arxiv_search
+                    await initialize_arxiv_search()
+                    logger.info("ArXiv search initialized successfully")
+                except Exception as e:
+                    import traceback
+                    error_details = traceback.format_exc()
+                    logger.error(f"Failed to initialize arXiv on-demand: {e}")
+                    logger.error(f"Full traceback: {error_details}")
+                    
+                    # Check if it's a memory issue
+                    error_msg = str(e).lower()
+                    if "memory" in error_msg or "oom" in error_msg or "out of memory" in error_msg:
+                        raise HTTPException(
+                            status_code=503, 
+                            detail="arXiv search system temporarily unavailable due to memory constraints. The service is running with limited resources."
+                        )
+                    else:
+                        raise HTTPException(
+                            status_code=503, 
+                            detail="Unable to initialize arXiv search system. Please try again later."
+                        )
         
         # Search for similar papers
         results_df = search_similar_papers(

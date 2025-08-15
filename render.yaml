@@ -17,4 +17,6 @@ services:
       - key: TRANSFORMERS_CACHE
         value: /tmp/transformers_cache
       - key: HF_HOME
-        value: /tmp/huggingface 
+        value: /tmp/huggingface
+      - key: ARXIV_LOAD_LIMIT
+        value: "5000" 
