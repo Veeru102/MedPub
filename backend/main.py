@@ -22,6 +22,10 @@ arxiv_router = None
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Configure NLTK data path
+from nltk_config import configure_nltk_data_path
+configure_nltk_data_path()
+
 # Debugging information.
 logger.info(f"Python path: {sys.path}")
 logger.info(f"Current working directory: {os.getcwd()}")

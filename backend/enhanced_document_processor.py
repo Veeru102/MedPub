@@ -9,15 +9,13 @@ import re
 import nltk
 from nltk.tokenize import sent_tokenize, word_tokenize
 
-# Downloads required NLTK data.
-try:
-    nltk.data.find('tokenizers/punkt')
-except LookupError:
-    nltk.download('punkt')
-
-# Configure logging.
+# Configure logging first
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Configure NLTK data path
+from nltk_config import ensure_nltk_data
+ensure_nltk_data()
 
 class EnhancedDocumentProcessor:
     """Processes documents with enhanced chunking and section detection."""
