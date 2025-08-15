@@ -16,7 +16,7 @@ import asyncio
 import nltk # Added for NLTK path configuration
 
 # Defer arXiv router import to avoid loading heavy dependencies at startup
-arxiv_router = None"
+arxiv_router = None
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
