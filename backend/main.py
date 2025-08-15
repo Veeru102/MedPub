@@ -15,6 +15,7 @@ import sys
 import asyncio
 import nltk # Added for NLTK path configuration
 from sklearn.metrics.pairwise import cosine_similarity
+from urllib.parse import unquote
 
 # Defer arXiv router import to avoid loading heavy dependencies at startup
 arxiv_router = None
@@ -279,6 +280,16 @@ async def get_arxiv_status():
             "error": str(e)
         }
 
+@app.get("/admin/processed-files")
+async def get_processed_files():
+    """Get list of currently processed files for debugging"""
+    return {
+        "processed_documents": list(processed_documents.keys()),
+        "document_sections": list(document_sections.keys()),
+        "total_processed": len(processed_documents),
+        "total_sections": len(document_sections)
+    }
+
 @app.get("/files/{filename}")
 async def serve_pdf(filename: str):
     """Serves PDF files from the uploads directory."""
@@ -339,6 +350,8 @@ async def upload_pdf(file: UploadFile = File(...)):
         # Stores processed documents and section information.
         processed_documents[filename] = lc_documents
         document_sections[filename] = doc_info
+        logger.info(f"Stored {len(lc_documents)} documents for {filename}")
+        logger.info(f"Current processed files: {list(processed_documents.keys())}")
         
         # Extracts topics for clustering.
         full_text = '\n'.join([doc.page_content for doc in lc_documents[:5]])  # Uses first 5 chunks.
@@ -398,10 +411,14 @@ async def websocket_endpoint(websocket: WebSocket):
 async def summarize_paper(request: SummarizeRequest):
     """Summarizes a specific paper with audience-specific formatting."""
     logger.info(f"Received summarize request for file: {request.filename}, audience: {request.audience_type}")
-    filename = request.filename
+    filename = unquote(request.filename)
+    
+    # Debug: Log available files
+    logger.info(f"Available processed documents: {list(processed_documents.keys())}")
     
     if filename not in processed_documents:
         logger.error(f"Processed data not found for file: {filename}")
+        logger.error(f"Available files: {list(processed_documents.keys())}")
         raise HTTPException(status_code=404, detail="Processed data not found for this file")
         
     document_chunks = processed_documents[filename]
@@ -558,7 +575,7 @@ async def clear_chat_history():
 async def get_sentence_explanation(request: ExplanationRequest):
     """Gets source passages and confidence scores for a specific sentence."""
     logger.info(f"Received explanation request for sentence in file: {request.filename}")
-    filename = request.filename
+    filename = unquote(request.filename)
     
     if filename not in processed_documents:
         logger.error(f"Processed data not found for file: {filename}")
@@ -776,9 +793,15 @@ async def get_related_documents(filename: str):
 @app.get("/similar-papers/{filename}")
 async def get_similar_papers(filename: str, limit: int = 3):
     """Gets similar arXiv papers for an uploaded PDF."""
+    filename = unquote(filename)
     logger.info(f"Getting similar papers for: {filename}")
     
+    # Debug: Log available files
+    logger.info(f"Available processed documents: {list(processed_documents.keys())}")
+    
     if filename not in processed_documents:
+        logger.error(f"Document not found: {filename}")
+        logger.error(f"Available files: {list(processed_documents.keys())}")
         raise HTTPException(status_code=404, detail="Document not found")
     
     try:
