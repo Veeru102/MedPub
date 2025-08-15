@@ -14,6 +14,7 @@ import numpy as np
 import sys
 import asyncio
 import nltk # Added for NLTK path configuration
+from sklearn.metrics.pairwise import cosine_similarity
 
 # Defer arXiv router import to avoid loading heavy dependencies at startup
 arxiv_router = None
@@ -128,11 +129,28 @@ def ensure_arxiv_router():
         app.include_router(arxiv_router)
         logger.info("ArXiv router loaded and included")
 
+async def initialize_arxiv_background():
+    """Initialize arXiv search system in background"""
+    try:
+        logger.info("Starting background arXiv initialization...")
+        from arxiv_search import initialize_arxiv_search
+        await initialize_arxiv_search()
+        logger.info("ArXiv search system initialized successfully")
+    except Exception as e:
+        import traceback
+        error_details = traceback.format_exc()
+        logger.error(f"Failed to initialize arXiv search system: {e}")
+        logger.error(f"Full traceback: {error_details}")
+        # Don't raise the exception to avoid crashing the app
+
 # Minimal startup event - no heavy loading
 @app.on_event("startup")
 async def startup_event():
     logger.info("Application startup: Minimal initialization complete")
     logger.info("Heavy components will be loaded on-demand to save memory")
+    
+    # Initialize arXiv search in background to avoid blocking startup
+    asyncio.create_task(initialize_arxiv_background())
 
 
 class SummarizeRequest(BaseModel):
@@ -173,6 +191,49 @@ class DeleteRequest(BaseModel):
 @app.get("/")
 async def root():
     return {"message": "Welcome to MedCopilot API"}
+
+@app.post("/admin/initialize-arxiv")
+async def initialize_arxiv_manual():
+    """Manually initialize arXiv search system"""
+    try:
+        ensure_arxiv_router()
+        from arxiv_search import initialize_arxiv_search, arxiv_state
+        
+        if arxiv_state.is_initialized:
+            return {"status": "already_initialized", "message": "arXiv search system is already initialized"}
+        
+        if arxiv_state.is_loading:
+            return {"status": "loading", "message": "arXiv search system is currently loading"}
+        
+        await initialize_arxiv_search()
+        return {"status": "success", "message": "arXiv search system initialized successfully"}
+    except Exception as e:
+        logger.error(f"Failed to initialize arXiv: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to initialize arXiv: {str(e)}")
+
+@app.get("/admin/arxiv-status")
+async def get_arxiv_status():
+    """Get current arXiv search system status"""
+    try:
+        ensure_arxiv_router()
+        from arxiv_search import arxiv_state
+        
+        return {
+            "is_initialized": arxiv_state.is_initialized,
+            "is_loading": arxiv_state.is_loading,
+            "total_papers": arxiv_state.total_papers,
+            "last_updated": arxiv_state.last_updated,
+            "has_faiss_index": arxiv_state.faiss_index is not None,
+            "has_metadata": arxiv_state.metadata_df is not None,
+            "has_model": arxiv_state.sentence_model is not None,
+        }
+    except Exception as e:
+        logger.error(f"Failed to get arXiv status: {e}")
+        return {
+            "is_initialized": False,
+            "is_loading": False,
+            "error": str(e)
+        }
 
 @app.get("/files/{filename}")
 async def serve_pdf(filename: str):
@@ -693,16 +754,27 @@ async def get_similar_papers(filename: str, limit: int = 3):
         
         logger.info(f"Using {len(search_text)} characters for similarity search")
     
+        # Ensure arXiv router is loaded
+        ensure_arxiv_router()
+        
         # Import and call the existing arXiv search function
-        from arxiv_search import search_similar_papers
         from arxiv_search import arxiv_state
+        # Import directly from arxiv_indexer to avoid lazy loading issues
+        from arxiv_indexer import search_similar_papers
         
         # Check if arXiv search is initialized
         if not arxiv_state.is_initialized:
-            raise HTTPException(
-                status_code=503, 
-                detail="arXiv search system not ready. Please try again in a moment."
-            )
+            logger.warning(f"arXiv state: initialized={arxiv_state.is_initialized}, loading={arxiv_state.is_loading}, has_index={arxiv_state.faiss_index is not None}, has_metadata={arxiv_state.metadata_df is not None}")
+            if arxiv_state.is_loading:
+                raise HTTPException(
+                    status_code=503, 
+                    detail="arXiv search system is still loading. Please try again in a moment."
+                )
+            else:
+                raise HTTPException(
+                    status_code=503, 
+                    detail="Unable to find similar papers. HTTP 500: Make sure the arXiv search system is initialized and try again."
+                )
         
         # Search for similar papers
         results_df = search_similar_papers(
@@ -736,8 +808,11 @@ async def get_similar_papers(filename: str, limit: int = 3):
         }
         
     except Exception as e:
+        import traceback
+        error_details = traceback.format_exc()
         logger.error(f"Error finding similar papers for {filename}: {e}")
-        raise HTTPException(status_code=500, detail=f"Error finding similar papers: {str(e)}")
+        logger.error(f"Full traceback: {error_details}")
+        raise HTTPException(status_code=500, detail=f"Error finding similar papers: {str(e) if str(e) else 'Unknown error occurred'}")
 
 @app.get("/debug-chunks/{filename}")
 async def debug_chunks(filename: str, start_idx: Optional[int] = 0, limit: Optional[int] = 5):
