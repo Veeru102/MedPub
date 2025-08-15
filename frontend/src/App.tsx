@@ -700,7 +700,9 @@ const Chat: React.FC<{ files: string[] }> = ({ files }) => {
   );
 };
 
-const BACKEND_URL = "http://localhost:8000";
+const BACKEND_URL = import.meta.env.PROD 
+  ? "https://medscope.onrender.com"  // Production backend URL
+  : "http://localhost:8000";         // Development backend URL
 
 const App: React.FC = () => {
   const [uploadedFiles, setUploadedFiles] = useState<string[]>([]);
