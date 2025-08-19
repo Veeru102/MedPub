@@ -43,9 +43,3 @@ Central to MedPub's functionality is a RAG pipeline that processes unstructured 
 - FAISS vector store with incremental update and local persistence  
 - Async PDF processing, embedding, and LLM interaction  
 - Rate limiting and exponential backoff for external APIs  
-
-### Prerequisites
-
-*   **Python 3.9+**: Ensure Python is installed and accessible via your PATH.
-*   **Node.js 18+**: Ensure Node.js and npm (or yarn) are installed.
-*   **OpenAI API Key**: Obtain an API key from OpenAI and set it as an environment variable.
